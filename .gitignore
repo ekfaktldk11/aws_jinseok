@@ -1,0 +1,9 @@
+# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-cli-command-reference-sam-build.html
+.aws-sam
+samconfig.toml
+
+# https://docs.npmjs.com/files/folders.html#node-modules
+node_modules/
+
+# https://docs.npmjs.com/cli/configuring-npm/package-lock-json
+package-lock.json
