@@ -1,0 +1,204 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: JD album bucket configuration
+Parameters:
+  BucketName:
+    Type: String
+  LambdaArchitecture:
+    Description: The instruction set architecture for the function
+    Type: String
+    Default: arm64
+    AllowedValues:
+      - X86_64
+      - arm64
+  GetImageApiName:
+    Description: Name of RestApi - Get image
+    Type: String
+  PostImageApiName:
+    Description: Name of RestApi - POST image
+    Type: String
+
+
+Transform:
+  - AWS::Serverless-2016-10-31
+
+Resources:
+  User: # 버킷 접근 user 권한
+    Type: AWS::IAM::User
+    Properties:
+      Path: /
+      Policies:
+        - PolicyName: AmazonS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${BucketName}
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${BucketName}/*
+
+  Role: # 람다 권한
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action: 
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+      Policies:
+        - PolicyName: AmazonS3Access # https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_examples_s3_rw-bucket.html
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${BucketName}/*
+
+
+  AccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName:
+        Ref: User
+
+  Secret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name:
+        Ref: AccessKey
+      Description:
+        Ref: User
+      SecretString:
+        Fn::GetAtt:
+          - AccessKey
+          - SecretAccessKey
+
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Ref: BucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+
+  GetImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: get-image
+      Description: GET Image router
+      Handler: index.handler
+      Role: !GetAtt Role.Arn
+      Runtime: nodejs20.x
+      Timeout: 180
+      Architectures:
+        - !Ref LambdaArchitecture
+      Environment:
+        Variables:
+          SOURCE_BUCKET: !Ref BucketName
+
+  GetImageApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Ref GetImageApiName
+
+  GetImageApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: GET
+        Type: AWS_PROXY
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetImageFunction.Arn}/invocations
+      ResourceId: !GetAtt GetImageApi.RootResourceId
+      RestApiId: !Ref GetImageApi
+
+  GetImageDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - GetImageApiMethod
+    Properties:
+      RestApiId: !Ref GetImageApi
+      StageName: call
+
+  GetImageApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt GetImageFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GetImageApi}/call/GET/
+
+  GetImageFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${GetImageFunction}
+      RetentionInDays: 90
+
+  # PostImageFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: post-image
+  #     Description: POST Image router
+  #     Handler: index.handler
+  #     Runtime: nodejs20.x
+  #     Timeout: 180
+  #     Architectures:
+  #       - !Ref LambdaArchitecture
+  #     Environment:
+  #       Variables:
+  #         SOURCE_BUCKET: !Ref BucketName
+
+  # PostImageApi:
+  #   Type: AWS::ApiGateway::RestApi
+  #   Properties:
+  #     Name: !Ref PostImageApiName
+
+  # PostImageApiMethod:
+  #   Type: AWS::ApiGateway::Method
+  #   Properties:
+  #     AuthorizationType: NONE
+  #     HttpMethod: POST
+  #     Integration:
+  #       IntegrationHttpMethod: POST
+  #       Type: AWS_PROXY
+  #       Uri: !Sub >-
+  #         arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PostImageFunction.Arn}/invocations
+  #     ResourceId: !GetAtt PostImageApi.RootResourceId
+  #     RestApiId: !Ref PostImageApi
+
+  # PostImageDeployment:
+  #   Type: AWS::ApiGateway::Deployment
+  #   DependsOn:
+  #     - PostImageApiMethod
+  #   Properties:
+  #     RestApiId: !Ref PostImageApi
+  #     StageName: call
+
+  # PostImageFunctionLogGroup:
+  #   Type: AWS::Logs::LogGroup
+  #   Properties:
+  #     LogGroupName: !Sub /aws/lambda/${PostImageFunction}
+  #     RetentionInDays: 90
