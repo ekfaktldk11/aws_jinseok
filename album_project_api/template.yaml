@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: JD album bucket configuration
+Description: JD album api configuration
 Parameters:
   BucketName:
     Type: String
@@ -11,51 +11,29 @@ Parameters:
       - X86_64
       - arm64
   GetImageApiName:
-    Description: Name of RestApi - Get image
+    Description: Name of RestApi - GET image
     Type: String
   PostImageApiName:
     Description: Name of RestApi - POST image
     Type: String
 
-
 Transform:
   - AWS::Serverless-2016-10-31
 
 Resources:
-  User: # 버킷 접근 user 권한
-    Type: AWS::IAM::User
-    Properties:
-      Path: /
-      Policies:
-        - PolicyName: AmazonS3Access
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:ListBucket
-                Resource:
-                  - !Sub arn:${AWS::Partition}:s3:::${BucketName}
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:DeleteObject
-                  - s3:PutObject
-                Resource:
-                  - !Sub arn:${AWS::Partition}:s3:::${BucketName}/*
-
   Role: # 람다 권한
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
-          - Action: 
-              - sts:AssumeRole
-            Effect: Allow
+          - Effect: Allow
             Principal:
-              Service:
-                - lambda.amazonaws.com
+              Service: !Sub lambda.${AWS::URLSuffix}
+            Action: sts:AssumeRole
+      Path: /service-role/
+      ManagedPolicyArns: # https://docs.aws.amazon.com/lambda/latest/dg/security-iam-awsmanpol.html
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
       Policies:
         - PolicyName: AmazonS3Access # https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_examples_s3_rw-bucket.html
           PolicyDocument:
@@ -67,46 +45,26 @@ Resources:
                   - s3:PutObject
                 Resource:
                   - !Sub arn:${AWS::Partition}:s3:::${BucketName}/*
-
-
-  AccessKey:
-    Type: AWS::IAM::AccessKey
-    Properties:
-      UserName:
-        Ref: User
-
-  Secret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name:
-        Ref: AccessKey
-      Description:
-        Ref: User
-      SecretString:
-        Fn::GetAtt:
-          - AccessKey
-          - SecretAccessKey
-
-  Bucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName:
-        Ref: BucketName
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        IgnorePublicAcls: true
-        BlockPublicPolicy: true
-        RestrictPublicBuckets: true
+        - PolicyName: AWSAPIGatewayPushToCloudWatchLogs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+                  - logs:GetLogEvents
+                  - logs:FilterLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*"
 
   GetImageFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: get-image
       Description: GET Image router
+      CodeUri: get-image
       Handler: index.handler
       Role: !GetAtt Role.Arn
       Runtime: nodejs20.x
@@ -128,11 +86,12 @@ Resources:
       AuthorizationType: NONE
       HttpMethod: GET
       Integration:
-        IntegrationHttpMethod: GET
+        IntegrationHttpMethod: POST
         Type: AWS_PROXY
-        Uri: !Sub >-
-          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetImageFunction.Arn}/invocations
-      ResourceId: !GetAtt GetImageApi.RootResourceId
+        Uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetImageFunction.Arn}/invocations
+      ResourceId: !GetAtt
+        - GetImageApi
+        - RootResourceId
       RestApiId: !Ref GetImageApi
 
   GetImageDeployment:
@@ -163,6 +122,7 @@ Resources:
   #     CodeUri: post-image
   #     Description: POST Image router
   #     Handler: index.handler
+  #     Role: !GetAtt Role.Arn
   #     Runtime: nodejs20.x
   #     Timeout: 180
   #     Architectures:
