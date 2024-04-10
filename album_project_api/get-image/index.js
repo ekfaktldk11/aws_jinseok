@@ -30,7 +30,7 @@ exports.handler = async function (event, context) {
         console.log("## event : ", event);
 
         const s3Client = new S3Client();
-        const contents = getImageContents(s3Client);
+        const contents = await getImageContents(s3Client);
 
         console.log("## contents : ", contents);
         // let idx = 0;
