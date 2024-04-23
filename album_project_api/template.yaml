@@ -44,6 +44,7 @@ Resources:
                   - s3:GetObject
                   - s3:PutObject
                 Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${BucketName}
                   - !Sub arn:${AWS::Partition}:s3:::${BucketName}/*
         - PolicyName: AWSAPIGatewayPushToCloudWatchLogs
           PolicyDocument:
