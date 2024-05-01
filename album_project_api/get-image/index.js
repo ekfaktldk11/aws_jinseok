@@ -47,6 +47,9 @@ exports.handler = async function (event, context) {
     }
 
     return {
+        headers: {
+            "Access-Control-Allow-Origin": process.env.HOST_URL,
+        },
         statusCode: 200,
     };
 };
