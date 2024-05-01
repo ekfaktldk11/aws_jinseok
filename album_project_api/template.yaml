@@ -16,6 +16,10 @@ Parameters:
   PostImageApiName:
     Description: Name of RestApi - POST image
     Type: String
+  HostUrl:
+    Description: domain when using other domain for cors.
+    Type: String
+    Default: http://localhost:3000
 
 Transform:
   - AWS::Serverless-2016-10-31
@@ -75,6 +79,7 @@ Resources:
       Environment:
         Variables:
           SOURCE_BUCKET: !Ref BucketName
+          HOST_URL: !Ref HostUrl
 
   GetImageApi:
     Type: AWS::ApiGateway::RestApi
