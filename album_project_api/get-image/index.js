@@ -33,22 +33,33 @@ exports.handler = async function (event, context) {
         const contents = await getImageContents(s3Client);
 
         console.log('## contents : ', contents);
-        // let idx = 0;
-        // for (const content of contents) {
-        //     console.log(`## content #${idx} : `, content);
-        //     idx++;
-        // }
-        // // const imageObj = await getObject(s3Client, Key);
-        // const imageUrl = await transformToByteArrayUrl(imageObj.Body);
-        // console.log("## imageObj : ", imageObj);
+
+        const base64Images = [];
+        for (const content of contents) {
+            console.log('## content : ', content);
+
+            const object = await getObject(s3Client, content.Key);
+            if (object) {
+                const base64 = object.Body.toString('base64');
+                base64Images.push(`data:image/jpeg;base64,${base64}`);
+            }
+        }
+        return {
+            headers: {
+                'Access-Control-Allow-Origin': process.env.HOST_URL,
+            },
+            statusCode: 200,
+            body: JSON.stringify({ images: base64Images }),
+        };
     } catch (err) {
         console.error(err);
-    }
 
-    return {
-        headers: {
-            'Access-Control-Allow-Origin': process.env.HOST_URL,
-        },
-        statusCode: 200,
-    };
+        return {
+            headers: {
+                'Access-Control-Allow-Origin': process.env.HOST_URL,
+            },
+            statusCode: 500,
+            body: JSON.stringify({ message: 'Internal Server Error' }),
+        };
+    }
 };
