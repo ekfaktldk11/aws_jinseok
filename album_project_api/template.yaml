@@ -8,7 +8,7 @@ Parameters:
     Type: String
     Default: arm64
     AllowedValues:
-      - X86_64
+      - x86_64
       - arm64
   GetImageApiName:
     Description: Name of RestApi - GET image
