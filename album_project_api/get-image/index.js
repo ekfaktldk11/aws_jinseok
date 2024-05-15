@@ -8,13 +8,13 @@ const getObject = async (client, Key) => {
 };
 
 // ByteArrayUrl 형태로 변경
-// const transformToByteArrayUrl = async (imageData) => {
-//     const result = await imageData.transformToByteArray();
+const transformToByteArrayUrl = async (imageData) => {
+    const result = await imageData.transformToByteArray();
 
-//     const imageBuffer = Buffer.from(result);
+    const imageBuffer = Buffer.from(result);
 
-//     return `data:image/jpeg;base64,${imageBuffer.toString("base64")}`;
-// };
+    return `data:image/jpeg;base64,${imageBuffer.toString('base64')}`;
+};
 
 // 가장 최신 이미지 Key 값 불러오기
 const getImageContents = async (client) => {
@@ -40,8 +40,8 @@ exports.handler = async function (event, context) {
 
             const object = await getObject(s3Client, content.Key);
             if (object) {
-                const base64 = object.Body.toString('base64');
-                base64Images.push(`data:image/jpeg;base64,${base64}`);
+                const base64 = await transformToByteArrayUrl(object.Body);
+                base64Images.push(base64);
             }
         }
         return {
