@@ -8,7 +8,7 @@ Transform:
   - AWS::Serverless-2016-10-31
 
 Resources:
-  User: # 버킷 접근 user 권한
+  User:
     Type: AWS::IAM::User
     Properties:
       Path: /
