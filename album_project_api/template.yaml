@@ -25,7 +25,7 @@ Transform:
   - AWS::Serverless-2016-10-31
 
 Resources:
-  Role: # 람다 권한
+  Role:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -36,10 +36,10 @@ Resources:
               Service: !Sub lambda.${AWS::URLSuffix}
             Action: sts:AssumeRole
       Path: /service-role/
-      ManagedPolicyArns: # https://docs.aws.amazon.com/lambda/latest/dg/security-iam-awsmanpol.html
+      ManagedPolicyArns:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
       Policies:
-        - PolicyName: AmazonS3Access # https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_examples_s3_rw-bucket.html
+        - PolicyName: AmazonS3Access
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -122,50 +122,3 @@ Resources:
     Properties:
       LogGroupName: !Sub /aws/lambda/${GetImageFunction}
       RetentionInDays: 90
-
-  # PostImageFunction:
-  #   Type: AWS::Serverless::Function
-  #   Properties:
-  #     CodeUri: post-image
-  #     Description: POST Image router
-  #     Handler: index.handler
-  #     Role: !GetAtt Role.Arn
-  #     Runtime: nodejs20.x
-  #     Timeout: 180
-  #     Architectures:
-  #       - !Ref LambdaArchitecture
-  #     Environment:
-  #       Variables:
-  #         SOURCE_BUCKET: !Ref BucketName
-
-  # PostImageApi:
-  #   Type: AWS::ApiGateway::RestApi
-  #   Properties:
-  #     Name: !Ref PostImageApiName
-
-  # PostImageApiMethod:
-  #   Type: AWS::ApiGateway::Method
-  #   Properties:
-  #     AuthorizationType: NONE
-  #     HttpMethod: POST
-  #     Integration:
-  #       IntegrationHttpMethod: POST
-  #       Type: AWS_PROXY
-  #       Uri: !Sub >-
-  #         arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PostImageFunction.Arn}/invocations
-  #     ResourceId: !GetAtt PostImageApi.RootResourceId
-  #     RestApiId: !Ref PostImageApi
-
-  # PostImageDeployment:
-  #   Type: AWS::ApiGateway::Deployment
-  #   DependsOn:
-  #     - PostImageApiMethod
-  #   Properties:
-  #     RestApiId: !Ref PostImageApi
-  #     StageName: call
-
-  # PostImageFunctionLogGroup:
-  #   Type: AWS::Logs::LogGroup
-  #   Properties:
-  #     LogGroupName: !Sub /aws/lambda/${PostImageFunction}
-  #     RetentionInDays: 90
