@@ -1,0 +1,32 @@
+AWSTemplateFormatVersion: "2010-09-09" # CloudFormation 템플릿의 버전 지정
+Description: topycare amplify app # 템플릿에 대한 설명
+
+Resources: # AWS 리소스 정의 섹션
+  AmplifyApp: # Amplify 애플리케이션 리소스
+    Type: AWS::Amplify::App # 리소스 타입 지정
+    Properties: # 리소스의 속성 정의
+      Name: topycare # Amplify 앱 이름
+      Repository: https://github.com/ekfaktldk11/topycare # 연결된 GitHub 저장소 URL
+      IAMServiceRole: arn:aws:iam::123456789012:role/amplify-service-role # Amplify가 사용할 IAM 역할 ARN
+      EnvironmentVariables: # 앱 전체에 적용되는 환경 변수
+        # - Name: _LIVE_PACKAGE # 환경 변수 이름
+        #   Value: "true" # 환경 변수 값
+
+  AmplifyBranch: # Amplify 앱의 브랜치 리소스
+    Type: AWS::Amplify::Branch # 리소스 타입 지정
+    Properties: # 리소스의 속성 정의
+      AppId: !GetAtt AmplifyApp.AppId # 연결할 Amplify 앱의 ID
+      BranchName: main # 브랜치 이름
+      Stage: STAGING # 브랜치의 배포 단계 (예: PRODUCTION)
+      EnableAutoBuild: false # 커밋 시 자동 빌드 활성화 여부
+      EnvironmentVariables: # 브랜치에 적용되는 환경 변수
+        # - Name: API_URL # 환경 변수 이름
+        #   Value: https://api.example.com # 환경 변수 값
+      Framework: React # 사용 프레임워크
+      EnablePerformanceMode: false # 성능 모드 활성화 여부
+
+  AmplifyBackendEnv: # Amplify 백엔드 환경 리소스
+    Type: AWS::Amplify::BackendEnvironment # 리소스 타입 지정
+    Properties: # 리소스의 속성 정의
+      AppId: !GetAtt AmplifyApp.AppId # 연결할 Amplify 앱의 ID
+      EnvironmentName: dev # 백엔드 환경 이름
