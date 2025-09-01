@@ -13,8 +13,39 @@ Parameters:
     Type: String
     Default: dev
     Description: The name of the backend environment
+  BucketName:
+    Type: String
+    Description: S3 bucket name for the Amplify app
 
 Resources: # AWS 리소스 정의 섹션
+  S3AccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: topycare-s3-access-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - amplify.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                Resource:
+                  - !GetAtt Bucket.Arn
+                  - !Sub "${Bucket.Arn}/*"
+
   GitHubAccessTokenSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -64,8 +95,18 @@ Resources: # AWS 리소스 정의 섹션
       Framework: React # 사용 프레임워크
       EnablePerformanceMode: false # 성능 모드 활성화 여부
 
-  # AmplifyBackendEnv: # Amplify 백엔드 환경 리소스
-  #   Type: AWS::Amplify::BackendEnvironment # 리소스 타입 지정
-  #   Properties: # 리소스의 속성 정의
-  #     AppId: !GetAtt AmplifyApp.AppId # 연결할 Amplify 앱의 ID
-  #     EnvironmentName: !Ref EnvironmentName # 백엔드 환경 이름
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Ref: BucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+  
