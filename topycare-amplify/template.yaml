@@ -109,4 +109,18 @@ Resources: # AWS 리소스 정의 섹션
         IgnorePublicAcls: true
         BlockPublicPolicy: true
         RestrictPublicBuckets: true
-  
+
+  # ServerlessFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     Handler: index.handler
+  #     Runtime: nodejs22.x
+  #     CodeUri: function
+  #     Description: topycare-backend-function
+  #     Role: !GetAtt S3AccessRole.Arn
+  #     Environment:
+  #       Variables:
+  #         BUCKET_NAME: !Ref BucketName
+
+# serverless function 하기전에 vpc 구현하자.
+# 보안과, 내부 리소스 간 통신 성능/안정성을 높이고, 불필요한 인터넷 요금 발생을 막기 위해서.
