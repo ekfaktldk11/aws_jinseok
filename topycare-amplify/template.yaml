@@ -45,12 +45,44 @@ Resources: # AWS 리소스 정의 섹션
                 Resource:
                   - !GetAtt Bucket.Arn
                   - !Sub "${Bucket.Arn}/*"
+  
+  TopycareVPC: # 네트워크의 기본 단위. / 보완필요 : 태그 추가(관리 편의), DNS 지원 활성화(내부 서비스 접근 용이)
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+
+  TopycareSubnet: # VPC 내에서 IP 주소 범위를 나누는 논리적 구분. / 보완필요 : 가용영역 지정(고가용성(멀티 AZ)), 태그 추가(관리 편의)
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref TopycareVPC
+      CidrBlock: 10.0.1.0/24
+
+  TopycareSecurityGroup: # 인스턴스/람다의 네트워크 접근 제어. / 보완필요 : 인바운드/아웃바운드 규칙 명시(ex. VPC 내부 통신 허용)
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Lambda access to S3
+      VpcId: !Ref TopycareVPC
+
+  TopycareRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TopycareVPC
+      Tags:
+        - Key: Name
+          Value: topycare-route-table
+
+  TopycareSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref TopycareSubnet
+      RouteTableId: !Ref TopycareRouteTable
 
   GitHubAccessTokenSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
       Name: github-token
       Description: GitHub Personal Access Token for Amplify
+      # SecretString: {} // 최초 생성때만 필요. 생성 후 콘솔에서 직접 수정 후 제거.
 
   AmplifyApp: # Amplify 애플리케이션 리소스
     Type: AWS::Amplify::App # 리소스 타입 지정
@@ -109,6 +141,15 @@ Resources: # AWS 리소스 정의 섹션
         IgnorePublicAcls: true
         BlockPublicPolicy: true
         RestrictPublicBuckets: true
+  
+  S3VPCEndpoint: # VPC 내부에서 S3에 프라이빗으로 접근 / 보완 필요 : EndpointType 명시, Policy 명시(접근 제어, 필요시)
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref TopycareVPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      RouteTableIds:
+        - !Ref TopycareRouteTable
+      VpcEndpointType: Gateway
 
   # ServerlessFunction:
   #   Type: AWS::Serverless::Function
@@ -124,3 +165,6 @@ Resources: # AWS 리소스 정의 섹션
 
 # serverless function 하기전에 vpc 구현하자.
 # 보안과, 내부 리소스 간 통신 성능/안정성을 높이고, 불필요한 인터넷 요금 발생을 막기 위해서.
+
+### 2025.09.07 Failed to create changeset for the stack: topycare-amplify, An error occurred (InsufficientCapabilitiesException) when calling the CreateChangeSet operation: Requires capabilities : [CAPABILITY_NAMED_IAM]
+# 위에러 수정할차례 ~~~
