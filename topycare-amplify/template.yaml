@@ -1,6 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09" # CloudFormation 템플릿의 버전 지정
 Description: topycare amplify app # 템플릿에 대한 설명
 
+Transform:
+  - AWS::Serverless-2016-10-31 # AWS SAM 변환기 사용
+
 Parameters:
   Repository:
     Type: String
@@ -16,9 +19,20 @@ Parameters:
   BucketName:
     Type: String
     Description: S3 bucket name for the Amplify app
+  LambdaArchitecture:
+    Description: The instruction set architecture for the function
+    Type: String
+    Default: arm64
+    AllowedValues:
+      - x86_64
+      - arm64
+  FoodHandlerApiName:
+    Description: Name of RestApi - food handler
+    Type: String
+    Default: topycare-food-handler
 
 Resources: # AWS 리소스 정의 섹션
-  S3AccessRole:
+  S3AccessRole: # for amplify
     Type: AWS::IAM::Role
     Properties:
       RoleName: topycare-s3-access-role
@@ -45,6 +59,46 @@ Resources: # AWS 리소스 정의 섹션
                 Resource:
                   - !GetAtt Bucket.Arn
                   - !Sub "${Bucket.Arn}/*"
+  LambdaRole: # for lambda
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: !Sub lambda.${AWS::URLSuffix}
+            Action: sts:AssumeRole
+      Path: /service-role/
+      ManagedPolicyArns: # https://docs.aws.amazon.com/lambda/latest/dg/security-iam-awsmanpol.html
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: AmazonS3Access # https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_examples_s3_rw-bucket.html
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${BucketName}
+                  - !Sub arn:${AWS::Partition}:s3:::${BucketName}/*
+        - PolicyName: AWSAPIGatewayPushToCloudWatchLogs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+                  - logs:GetLogEvents
+                  - logs:FilterLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*"
   
   TopycareVPC: # 네트워크의 기본 단위. / 보완필요 : 태그 추가(관리 편의), DNS 지원 활성화(내부 서비스 접근 용이)
     Type: AWS::EC2::VPC
@@ -151,20 +205,69 @@ Resources: # AWS 리소스 정의 섹션
         - !Ref TopycareRouteTable
       VpcEndpointType: Gateway
 
-  # ServerlessFunction:
-  #   Type: AWS::Serverless::Function
-  #   Properties:
-  #     Handler: index.handler
-  #     Runtime: nodejs22.x
-  #     CodeUri: function
-  #     Description: topycare-backend-function
-  #     Role: !GetAtt S3AccessRole.Arn
-  #     Environment:
-  #       Variables:
-  #         BUCKET_NAME: !Ref BucketName
+  FoodHandler:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: topycare-food-handler
+      CodeUri: api/food-handler
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: nodejs22.x
+      Timeout: 60
+      Architectures:
+        - !Ref LambdaArchitecture
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref TopycareSecurityGroup
+        SubnetIds:
+          - !Ref TopycareSubnet
+
+  FoodHandlerApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Ref FoodHandlerApiName
+
+  FoodHandlerApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: ANY
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FoodHandler.Arn}/invocations
+      ResourceId: !GetAtt
+        - FoodHandlerApi
+        - RootResourceId
+      RestApiId: !Ref FoodHandlerApi
+
+  FoodHandlerDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - FoodHandlerApiMethod
+    Properties:
+      RestApiId: !Ref FoodHandlerApi
+      StageName: call
+
+  FoodHandlerApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt FoodHandler.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FoodHandlerApi}/call/GET/
+
+  FoodHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${FoodHandler}
+      RetentionInDays: 90
 
 # serverless function 하기전에 vpc 구현하자.
 # 보안과, 내부 리소스 간 통신 성능/안정성을 높이고, 불필요한 인터넷 요금 발생을 막기 위해서.
 
-### 2025.09.07 Failed to create changeset for the stack: topycare-amplify, An error occurred (InsufficientCapabilitiesException) when calling the CreateChangeSet operation: Requires capabilities : [CAPABILITY_NAMED_IAM]
-# 위에러 수정할차례 ~~~
+## 25.09.10. Todo
+# VPC 내부에 Lambda를 배치하고, API Gateway와 Lambda를 통합하면
+# Amplify 앱에서 API Gateway 엔드포인트로 요청을 보내고,
+# API Gateway가 VPC 내부의 Lambda를 호출하여
+# 암호화된 HTTPS(SSL/TLS)로 Amplify ↔ API Gateway ↔ Lambda 간 안전한 데이터 송수신이 가능합니다.
