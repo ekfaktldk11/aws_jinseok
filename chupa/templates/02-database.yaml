@@ -1,0 +1,306 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Chupa Stack 2/5 - Database (DynamoDB Tables)"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+
+Resources:
+  # ════════════════════════════════════════
+  # Users 테이블
+  # ════════════════════════════════════════
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    Properties:
+      TableName: !Sub "chupa-users-${Environment}"
+      BillingMode: !If [IsProd, PROVISIONED, PAY_PER_REQUEST]
+      ProvisionedThroughput: !If
+        - IsProd
+        - ReadCapacityUnits: 10
+          WriteCapacityUnits: 5
+        - !Ref AWS::NoValue
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProd, true, false]
+
+  # ════════════════════════════════════════
+  # CheckIns 테이블 (TTL로 자동 만료)
+  # ════════════════════════════════════════
+  CheckInsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "chupa-checkins-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: venueId
+          KeyType: HASH
+        - AttributeName: userId
+          KeyType: RANGE
+      AttributeDefinitions:
+        - AttributeName: venueId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      GlobalSecondaryIndexes:
+        # 내 체크인 이력 조회
+        - IndexName: userId-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  # ════════════════════════════════════════
+  # VenueCache 테이블 (카카오맵 API 캐싱)
+  # ════════════════════════════════════════
+  VenueCacheTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "chupa-venue-cache-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: venueId
+          KeyType: HASH
+      AttributeDefinitions:
+        - AttributeName: venueId
+          AttributeType: S
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  # ════════════════════════════════════════
+  # Chupas 테이블 (추파/좋아요)
+  # ════════════════════════════════════════
+  ChupasTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "chupa-chupas-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: fromUserId
+          KeyType: HASH
+        - AttributeName: toUserId
+          KeyType: RANGE
+      AttributeDefinitions:
+        - AttributeName: fromUserId
+          AttributeType: S
+        - AttributeName: toUserId
+          AttributeType: S
+        - AttributeName: venueId
+          AttributeType: S
+      GlobalSecondaryIndexes:
+        # 나에게 온 추파 조회
+        - IndexName: toUserId-index
+          KeySchema:
+            - AttributeName: toUserId
+              KeyType: HASH
+            - AttributeName: fromUserId
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        # 매장별 추파 조회
+        - IndexName: venueId-index
+          KeySchema:
+            - AttributeName: venueId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  # ════════════════════════════════════════
+  # Matches 테이블
+  # ════════════════════════════════════════
+  MatchesTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    Properties:
+      TableName: !Sub "chupa-matches-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: matchId
+          KeyType: HASH
+      AttributeDefinitions:
+        - AttributeName: matchId
+          AttributeType: S
+        - AttributeName: user1Id
+          AttributeType: S
+        - AttributeName: user2Id
+          AttributeType: S
+      GlobalSecondaryIndexes:
+        - IndexName: user1Id-index
+          KeySchema:
+            - AttributeName: user1Id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: user2Id-index
+          KeySchema:
+            - AttributeName: user2Id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  # ════════════════════════════════════════
+  # Messages 테이블 (채팅)
+  # ════════════════════════════════════════
+  MessagesTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    Properties:
+      TableName: !Sub "chupa-messages-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: matchId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      AttributeDefinitions:
+        - AttributeName: matchId
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+
+  # ════════════════════════════════════════
+  # Reports 테이블 (신고)
+  # ════════════════════════════════════════
+  ReportsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "chupa-reports-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: reportId
+          KeyType: HASH
+      AttributeDefinitions:
+        - AttributeName: reportId
+          AttributeType: S
+        - AttributeName: reportedUserId
+          AttributeType: S
+      GlobalSecondaryIndexes:
+        - IndexName: reportedUserId-index
+          KeySchema:
+            - AttributeName: reportedUserId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  # ════════════════════════════════════════
+  # Connections 테이블 (WebSocket 연결 관리)
+  # ════════════════════════════════════════
+  ConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "chupa-connections-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: connectionId
+          KeyType: HASH
+      AttributeDefinitions:
+        - AttributeName: connectionId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+      GlobalSecondaryIndexes:
+        - IndexName: userId-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+Outputs:
+  UsersTableName:
+    Value: !Ref UsersTable
+    Export:
+      Name: !Sub "chupa-${Environment}-UsersTable"
+
+  UsersTableArn:
+    Value: !GetAtt UsersTable.Arn
+    Export:
+      Name: !Sub "chupa-${Environment}-UsersTableArn"
+
+  CheckInsTableName:
+    Value: !Ref CheckInsTable
+    Export:
+      Name: !Sub "chupa-${Environment}-CheckInsTable"
+
+  CheckInsTableArn:
+    Value: !GetAtt CheckInsTable.Arn
+    Export:
+      Name: !Sub "chupa-${Environment}-CheckInsTableArn"
+
+  VenueCacheTableName:
+    Value: !Ref VenueCacheTable
+    Export:
+      Name: !Sub "chupa-${Environment}-VenueCacheTable"
+
+  VenueCacheTableArn:
+    Value: !GetAtt VenueCacheTable.Arn
+    Export:
+      Name: !Sub "chupa-${Environment}-VenueCacheTableArn"
+
+  ChupasTableName:
+    Value: !Ref ChupasTable
+    Export:
+      Name: !Sub "chupa-${Environment}-ChupasTable"
+
+  ChupasTableArn:
+    Value: !GetAtt ChupasTable.Arn
+    Export:
+      Name: !Sub "chupa-${Environment}-ChupasTableArn"
+
+  MatchesTableName:
+    Value: !Ref MatchesTable
+    Export:
+      Name: !Sub "chupa-${Environment}-MatchesTable"
+
+  MatchesTableArn:
+    Value: !GetAtt MatchesTable.Arn
+    Export:
+      Name: !Sub "chupa-${Environment}-MatchesTableArn"
+
+  MessagesTableName:
+    Value: !Ref MessagesTable
+    Export:
+      Name: !Sub "chupa-${Environment}-MessagesTable"
+
+  MessagesTableArn:
+    Value: !GetAtt MessagesTable.Arn
+    Export:
+      Name: !Sub "chupa-${Environment}-MessagesTableArn"
+
+  ReportsTableName:
+    Value: !Ref ReportsTable
+    Export:
+      Name: !Sub "chupa-${Environment}-ReportsTable"
+
+  ReportsTableArn:
+    Value: !GetAtt ReportsTable.Arn
+    Export:
+      Name: !Sub "chupa-${Environment}-ReportsTableArn"
+
+  ConnectionsTableName:
+    Value: !Ref ConnectionsTable
+    Export:
+      Name: !Sub "chupa-${Environment}-ConnectionsTable"
+
+  ConnectionsTableArn:
+    Value: !GetAtt ConnectionsTable.Arn
+    Export:
+      Name: !Sub "chupa-${Environment}-ConnectionsTableArn"

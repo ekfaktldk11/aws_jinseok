@@ -1,0 +1,314 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Chupa Stack 4/5 - API (API Gateway + Lambda)"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 15
+    MemorySize: 256
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        USERS_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-UsersTable"
+        CHECKINS_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-CheckInsTable"
+        VENUE_CACHE_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-VenueCacheTable"
+        CHUPAS_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-ChupasTable"
+        MATCHES_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-MatchesTable"
+        REPORTS_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-ReportsTable"
+        IMAGE_BUCKET: !ImportValue
+          Fn::Sub: "chupa-${Environment}-ImageBucket"
+        CDN_DOMAIN: !ImportValue
+          Fn::Sub: "chupa-${Environment}-CdnDomain"
+    Tags:
+      Project: chupa
+      Environment: !Ref Environment
+
+Resources:
+  # ════════════════════════════════════════
+  # API Gateway REST API
+  # ════════════════════════════════════════
+  RestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "chupa-api-${Environment}"
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"
+      Auth:
+        DefaultAuthorizer: CognitoAuth
+        Authorizers:
+          CognitoAuth:
+            UserPoolArn: !ImportValue
+              Fn::Sub: "chupa-${Environment}-UserPoolArn"
+        AddDefaultAuthorizerToCorsPreflight: false
+
+  # ════════════════════════════════════════
+  # Lambda 실행 역할
+  # ════════════════════════════════════════
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "chupa-lambda-role-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-UsersTableArn"
+                  - !Sub
+                    - "${TableArn}/index/*"
+                    - TableArn: !ImportValue
+                        Fn::Sub: "chupa-${Environment}-UsersTableArn"
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-CheckInsTableArn"
+                  - !Sub
+                    - "${TableArn}/index/*"
+                    - TableArn: !ImportValue
+                        Fn::Sub: "chupa-${Environment}-CheckInsTableArn"
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-VenueCacheTableArn"
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-ChupasTableArn"
+                  - !Sub
+                    - "${TableArn}/index/*"
+                    - TableArn: !ImportValue
+                        Fn::Sub: "chupa-${Environment}-ChupasTableArn"
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-MatchesTableArn"
+                  - !Sub
+                    - "${TableArn}/index/*"
+                    - TableArn: !ImportValue
+                        Fn::Sub: "chupa-${Environment}-MatchesTableArn"
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-ReportsTableArn"
+                  - !Sub
+                    - "${TableArn}/index/*"
+                    - TableArn: !ImportValue
+                        Fn::Sub: "chupa-${Environment}-ReportsTableArn"
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource: !Sub
+                  - "${BucketArn}/*"
+                  - BucketArn: !ImportValue
+                      Fn::Sub: "chupa-${Environment}-ImageBucketArn"
+        - PolicyName: SSMAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/chupa/${Environment}/*"
+
+  # ════════════════════════════════════════
+  # Lambda Functions
+  # ════════════════════════════════════════
+
+  # ── User 관련 ──
+  UserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-user-${Environment}"
+      CodeUri: ../lambda/user/
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Events:
+        GetProfile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /users/{userId}
+            Method: GET
+        UpdateProfile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /users/{userId}
+            Method: PUT
+        GetUploadUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /users/{userId}/upload-url
+            Method: POST
+
+  # ── Venue 관련 ──
+  VenueFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-venue-${Environment}"
+      CodeUri: ../lambda/venue/
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Events:
+        SearchNearby:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /venues/nearby
+            Method: POST
+        GetVenue:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /venues/{venueId}
+            Method: GET
+
+  # ── CheckIn 관련 ──
+  CheckInFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-checkin-${Environment}"
+      CodeUri: ../lambda/checkin/
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Events:
+        CreateCheckIn:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /checkins
+            Method: POST
+        DeleteCheckIn:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /checkins/{venueId}
+            Method: DELETE
+        GetVenueUsers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /checkins/venue/{venueId}
+            Method: GET
+        GetMyCheckIn:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /checkins/me
+            Method: GET
+
+  # ── Chupa(추파) 관련 ──
+  ChupaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-chupa-${Environment}"
+      CodeUri: ../lambda/chupa/
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Events:
+        SendChupa:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /chupas
+            Method: POST
+        GetReceivedChupas:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /chupas/received
+            Method: GET
+        GetSentChupas:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /chupas/sent
+            Method: GET
+
+  # ── Match 관련 ──
+  MatchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-match-${Environment}"
+      CodeUri: ../lambda/match/
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Events:
+        GetMatches:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /matches
+            Method: GET
+        GetMatch:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /matches/{matchId}
+            Method: GET
+
+  # ── Report(신고) 관련 ──
+  ReportFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-report-${Environment}"
+      CodeUri: ../lambda/report/
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Events:
+        CreateReport:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /reports
+            Method: POST
+        BlockUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /users/{userId}/block
+            Method: POST
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+    Export:
+      Name: !Sub "chupa-${Environment}-ApiUrl"
+
+  RestApiId:
+    Value: !Ref RestApi
+    Export:
+      Name: !Sub "chupa-${Environment}-RestApiId"

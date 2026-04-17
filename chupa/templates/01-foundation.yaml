@@ -1,0 +1,270 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Chupa Stack 1/5 - Foundation (Cognito, S3, CloudFront)"
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+  KakaoClientId:
+    Type: String
+    Description: "Kakao OAuth Client ID"
+    NoEcho: true
+
+  KakaoClientSecret:
+    Type: String
+    Description: "Kakao OAuth Client Secret"
+    NoEcho: true
+
+  KakaoMapApiKey:
+    Type: String
+    Description: "Kakao Map REST API Key"
+    NoEcho: true
+
+Resources:
+  # ════════════════════════════════════════
+  # Cognito User Pool
+  # ════════════════════════════════════════
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "chupa-users-${Environment}"
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireUppercase: false
+          RequireSymbols: false
+      Schema:
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+        - Name: birthdate
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      DeletionProtection: !If [IsProd, ACTIVE, INACTIVE]
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "chupa-app-${Environment}"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_CUSTOM_AUTH
+      SupportedIdentityProviders:
+        - COGNITO
+        - Kakao
+      CallbackURLs:
+        - !If
+          - IsProd
+          - "https://app.chupa.kr/callback"
+          - "exp://localhost:8081/callback"
+      LogoutURLs:
+        - !If
+          - IsProd
+          - "https://app.chupa.kr/logout"
+          - "exp://localhost:8081/logout"
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 30
+
+  # Kakao Identity Provider
+  KakaoIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Kakao
+      ProviderType: OIDC
+      ProviderDetails:
+        client_id: !Ref KakaoClientId
+        client_secret: !Ref KakaoClientSecret
+        authorize_scopes: "openid profile_nickname profile_image account_email"
+        oidc_issuer: "https://kauth.kakao.com"
+        attributes_request_method: GET
+      AttributeMapping:
+        email: email
+        name: nickname
+        picture: profile_image_url
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub "chupa-auth-${Environment}"
+      UserPoolId: !Ref UserPool
+
+  # ════════════════════════════════════════
+  # S3 - 프로필 이미지 저장
+  # ════════════════════════════════════════
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "chupa-images-${Environment}-${AWS::AccountId}"
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ["*"]
+            AllowedMethods: [GET, PUT]
+            AllowedOrigins: ["*"]
+            MaxAge: 3600
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteTempUploads
+            Prefix: temp/
+            Status: Enabled
+            ExpirationInDays: 1
+
+  ImageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ImageBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontAccess
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${ImageBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  # ════════════════════════════════════════
+  # CloudFront - 이미지 CDN
+  # ════════════════════════════════════════
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "chupa-oac-${Environment}"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "Chupa Images CDN (${Environment})"
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
+          Compress: true
+          AllowedMethods: [GET, HEAD]
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt ImageBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !Ref CloudFrontOAC
+        PriceClass: PriceClass_200
+
+  # ════════════════════════════════════════
+  # SSM Parameter Store - 공유 설정값
+  # ════════════════════════════════════════
+  ParamUserPoolId:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/chupa/${Environment}/cognito/userPoolId"
+      Type: String
+      Value: !Ref UserPool
+
+  ParamUserPoolClientId:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/chupa/${Environment}/cognito/clientId"
+      Type: String
+      Value: !Ref UserPoolClient
+
+  ParamImageBucket:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/chupa/${Environment}/s3/imageBucket"
+      Type: String
+      Value: !Ref ImageBucket
+
+  ParamCdnDomain:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/chupa/${Environment}/cloudfront/domain"
+      Type: String
+      Value: !GetAtt CloudFrontDistribution.DomainName
+
+  ParamKakaoMapKey:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/chupa/${Environment}/kakao/mapApiKey"
+      Type: String
+      Value: !Ref KakaoMapApiKey
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+
+Outputs:
+  UserPoolId:
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub "chupa-${Environment}-UserPoolId"
+
+  UserPoolArn:
+    Value: !GetAtt UserPool.Arn
+    Export:
+      Name: !Sub "chupa-${Environment}-UserPoolArn"
+
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub "chupa-${Environment}-UserPoolClientId"
+
+  ImageBucketName:
+    Value: !Ref ImageBucket
+    Export:
+      Name: !Sub "chupa-${Environment}-ImageBucket"
+
+  ImageBucketArn:
+    Value: !GetAtt ImageBucket.Arn
+    Export:
+      Name: !Sub "chupa-${Environment}-ImageBucketArn"
+
+  CloudFrontDomain:
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub "chupa-${Environment}-CdnDomain"
+
+  CloudFrontDistributionId:
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub "chupa-${Environment}-CdnDistId"
