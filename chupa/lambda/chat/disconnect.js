@@ -1,9 +1,9 @@
-const { DeleteCommand } = require("@aws-sdk/lib-dynamodb");
-const { ddb } = require("../shared/utils");
+import { DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { ddb } from "../shared/utils.js";
 
 const TABLE = process.env.CONNECTIONS_TABLE;
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
 
   await ddb.send(new DeleteCommand({

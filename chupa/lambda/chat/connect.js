@@ -1,10 +1,9 @@
-// ── connect.js ──
-const { PutCommand } = require("@aws-sdk/lib-dynamodb");
-const { ddb } = require("../shared/utils");
+import { PutCommand } from "@aws-sdk/lib-dynamodb";
+import { ddb } from "../shared/utils.js";
 
 const TABLE = process.env.CONNECTIONS_TABLE;
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
   const userId = event.queryStringParameters?.userId;
 
@@ -16,7 +15,7 @@ exports.handler = async (event) => {
       connectionId,
       userId,
       connectedAt: new Date().toISOString(),
-      expiresAt: Math.floor(Date.now() / 1000) + 86400, // 24시간 TTL
+      expiresAt: Math.floor(Date.now() / 1000) + 86400,
     },
   }));
 

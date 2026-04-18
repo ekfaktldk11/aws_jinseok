@@ -1,6 +1,6 @@
-const { GetCommand, PutCommand } = require("@aws-sdk/lib-dynamodb");
-const { SSMClient, GetParameterCommand } = require("@aws-sdk/client-ssm");
-const { ddb, ok, badRequest, serverError } = require("../shared/utils");
+import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
+import { ddb, ok, badRequest, serverError } from "../shared/utils.js";
 
 const VENUE_CACHE_TABLE = process.env.VENUE_CACHE_TABLE;
 const ssm = new SSMClient({});
@@ -15,7 +15,14 @@ async function getKakaoApiKey() {
   return kakaoApiKey;
 }
 
-exports.handler = async (event) => {
+function getCategoryLabel(groupName, fullName) {
+  if (groupName === "카페") return "카페";
+  if (fullName.includes("술집") || fullName.includes("바")) return "바";
+  if (groupName === "음식점") return "식당";
+  return "기타";
+}
+
+export const handler = async (event) => {
   const method = event.httpMethod;
   const path = event.resource;
 
@@ -29,7 +36,7 @@ exports.handler = async (event) => {
 
       const apiKey = await getKakaoApiKey();
       const venues = [];
-      const categories = category ? [category] : ["CE7", "FD6"]; // 카페, 음식점
+      const categories = category ? [category] : ["CE7", "FD6"];
 
       for (const code of categories) {
         const params = new URLSearchParams({
@@ -66,7 +73,6 @@ exports.handler = async (event) => {
 
           venues.push(venue);
 
-          // 캐시에 저장 (24시간 TTL)
           await ddb.send(new PutCommand({
             TableName: VENUE_CACHE_TABLE,
             Item: {
@@ -78,7 +84,6 @@ exports.handler = async (event) => {
         }
       }
 
-      // 중복 제거 + 거리순 정렬
       const unique = venues.filter(
         (v, i, arr) => arr.findIndex((a) => a.venueId === v.venueId) === i
       );
@@ -105,10 +110,3 @@ exports.handler = async (event) => {
     return serverError();
   }
 };
-
-function getCategoryLabel(groupName, fullName) {
-  if (groupName === "카페") return "카페";
-  if (fullName.includes("술집") || fullName.includes("바")) return "바";
-  if (groupName === "음식점") return "식당";
-  return "기타";
-}

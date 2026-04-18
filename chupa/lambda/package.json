@@ -2,6 +2,7 @@
   "name": "chupa-lambda",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.600.0",
     "@aws-sdk/lib-dynamodb": "^3.600.0",

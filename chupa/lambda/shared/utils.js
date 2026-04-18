@@ -1,8 +1,8 @@
-const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-const { DynamoDBDocumentClient } = require("@aws-sdk/lib-dynamodb");
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
 const client = new DynamoDBClient({});
-const ddb = DynamoDBDocumentClient.from(client);
+export const ddb = DynamoDBDocumentClient.from(client);
 
 const headers = {
   "Content-Type": "application/json",
@@ -10,32 +10,30 @@ const headers = {
   "Access-Control-Allow-Headers": "Content-Type,Authorization",
 };
 
-function ok(body) {
+export function ok(body) {
   return { statusCode: 200, headers, body: JSON.stringify(body) };
 }
 
-function created(body) {
+export function created(body) {
   return { statusCode: 201, headers, body: JSON.stringify(body) };
 }
 
-function badRequest(message) {
+export function badRequest(message) {
   return { statusCode: 400, headers, body: JSON.stringify({ error: message }) };
 }
 
-function notFound(message = "Not found") {
+export function notFound(message = "Not found") {
   return { statusCode: 404, headers, body: JSON.stringify({ error: message }) };
 }
 
-function forbidden(message = "Forbidden") {
+export function forbidden(message = "Forbidden") {
   return { statusCode: 403, headers, body: JSON.stringify({ error: message }) };
 }
 
-function serverError(message = "Internal server error") {
+export function serverError(message = "Internal server error") {
   return { statusCode: 500, headers, body: JSON.stringify({ error: message }) };
 }
 
-function getUserIdFromEvent(event) {
+export function getUserIdFromEvent(event) {
   return event.requestContext?.authorizer?.claims?.sub || null;
 }
-
-module.exports = { ddb, ok, created, badRequest, notFound, forbidden, serverError, getUserIdFromEvent };

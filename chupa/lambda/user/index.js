@@ -1,13 +1,13 @@
-const { GetCommand, PutCommand, UpdateCommand } = require("@aws-sdk/lib-dynamodb");
-const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
-const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
-const { ddb, ok, badRequest, notFound, serverError, getUserIdFromEvent } = require("../shared/utils");
+import { GetCommand, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { ddb, ok, badRequest, notFound, serverError, getUserIdFromEvent } from "../shared/utils.js";
 
 const TABLE = process.env.USERS_TABLE;
 const BUCKET = process.env.IMAGE_BUCKET;
 const s3 = new S3Client({});
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   const method = event.httpMethod;
   const path = event.resource;
   const currentUserId = getUserIdFromEvent(event);
@@ -23,7 +23,6 @@ exports.handler = async (event) => {
 
       if (!result.Item) return notFound("사용자를 찾을 수 없어요");
 
-      // 다른 사용자 프로필 조회 시 민감 정보 제거
       if (userId !== currentUserId) {
         delete result.Item.email;
         delete result.Item.blockedUsers;

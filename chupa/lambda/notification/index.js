@@ -1,7 +1,9 @@
-// SNS 트리거로 실행되는 알림 Lambda
-// FCM/APNs로 실제 푸시 전송
+async function sendPush(userId, payload) {
+  // TODO: FCM/APNs 실제 푸시 전송
+  console.log(`[PUSH] userId=${userId}`, payload);
+}
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   for (const record of event.Records) {
     const message = JSON.parse(record.Sns.Message);
     const { type, userId, data } = message;
@@ -46,15 +48,3 @@ exports.handler = async (event) => {
     }
   }
 };
-
-async function sendPush(userId, payload) {
-  // TODO: 사용자의 FCM/APNs 토큰 조회 → 실제 푸시 전송
-  // FCM: firebase-admin SDK
-  // APNs: @aws-sdk/client-sns (Platform Application)
-
-  console.log(`[PUSH] userId=${userId}`, payload);
-
-  // 실제 구현 시:
-  // 1. DynamoDB에서 userId의 deviceToken 조회
-  // 2. FCM HTTP v1 API 호출 또는 SNS Platform Endpoint 사용
-}
