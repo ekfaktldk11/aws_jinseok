@@ -58,6 +58,7 @@ Resources:
 
   UserPoolClient:
     Type: AWS::Cognito::UserPoolClient
+    DependsOn: KakaoIdentityProvider
     Properties:
       ClientName: !Sub "chupa-app-${Environment}"
       UserPoolId: !Ref UserPool
