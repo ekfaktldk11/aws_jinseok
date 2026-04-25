@@ -56,9 +56,27 @@ Resources:
             Priority: 1
       DeletionProtection: !If [IsProd, ACTIVE, INACTIVE]
 
+  # Kakao Identity Provider
+  KakaoIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Kakao
+      ProviderType: OIDC
+      ProviderDetails:
+        client_id: !Ref KakaoClientId
+        client_secret: !Ref KakaoClientSecret
+        authorize_scopes: "openid profile_nickname profile_image account_email"
+        oidc_issuer: "https://kauth.kakao.com"
+        attributes_request_method: GET
+      AttributeMapping:
+        email: email
+        name: nickname
+        picture: profile_image_url
+
+  # SupportedIdentityProviders에 !Ref를 사용해 KakaoIdentityProvider 생성 순서를 CloudFormation이 자동으로 보장
   UserPoolClient:
     Type: AWS::Cognito::UserPoolClient
-    DependsOn: KakaoIdentityProvider
     Properties:
       ClientName: !Sub "chupa-app-${Environment}"
       UserPoolId: !Ref UserPool
@@ -69,7 +87,7 @@ Resources:
         - ALLOW_CUSTOM_AUTH
       SupportedIdentityProviders:
         - COGNITO
-        - Kakao
+        - !Ref KakaoIdentityProvider
       CallbackURLs:
         - !If
           - IsProd
@@ -94,24 +112,6 @@ Resources:
       AccessTokenValidity: 1
       IdTokenValidity: 1
       RefreshTokenValidity: 30
-
-  # Kakao Identity Provider
-  KakaoIdentityProvider:
-    Type: AWS::Cognito::UserPoolIdentityProvider
-    Properties:
-      UserPoolId: !Ref UserPool
-      ProviderName: Kakao
-      ProviderType: OIDC
-      ProviderDetails:
-        client_id: !Ref KakaoClientId
-        client_secret: !Ref KakaoClientSecret
-        authorize_scopes: "openid profile_nickname profile_image account_email"
-        oidc_issuer: "https://kauth.kakao.com"
-        attributes_request_method: GET
-      AttributeMapping:
-        email: email
-        name: nickname
-        picture: profile_image_url
 
   UserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
