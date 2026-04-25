@@ -16,7 +16,7 @@ Resources:
   # ════════════════════════════════════════
   UsersTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: !If [IsProd, Retain, Delete]
+    DeletionPolicy: Retain
     Properties:
       TableName: !Sub "chupa-users-${Environment}"
       BillingMode: !If [IsProd, PROVISIONED, PAY_PER_REQUEST]
@@ -31,6 +31,7 @@ Resources:
       AttributeDefinitions:
         - AttributeName: userId
           AttributeType: S
+      DeletionProtectionEnabled: !If [IsProd, true, false]
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: !If [IsProd, true, false]
 
@@ -87,6 +88,7 @@ Resources:
   # ════════════════════════════════════════
   ChupasTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
     Properties:
       TableName: !Sub "chupa-chupas-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -102,6 +104,7 @@ Resources:
           AttributeType: S
         - AttributeName: venueId
           AttributeType: S
+      DeletionProtectionEnabled: !If [IsProd, true, false]
       GlobalSecondaryIndexes:
         # 나에게 온 추파 조회
         - IndexName: toUserId-index
@@ -125,7 +128,7 @@ Resources:
   # ════════════════════════════════════════
   MatchesTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: !If [IsProd, Retain, Delete]
+    DeletionPolicy: Retain
     Properties:
       TableName: !Sub "chupa-matches-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -139,6 +142,7 @@ Resources:
           AttributeType: S
         - AttributeName: user2Id
           AttributeType: S
+      DeletionProtectionEnabled: !If [IsProd, true, false]
       GlobalSecondaryIndexes:
         - IndexName: user1Id-index
           KeySchema:
@@ -158,7 +162,7 @@ Resources:
   # ════════════════════════════════════════
   MessagesTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: !If [IsProd, Retain, Delete]
+    DeletionPolicy: Retain
     Properties:
       TableName: !Sub "chupa-messages-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -172,12 +176,14 @@ Resources:
           AttributeType: S
         - AttributeName: timestamp
           AttributeType: S
+      DeletionProtectionEnabled: !If [IsProd, true, false]
 
   # ════════════════════════════════════════
   # Reports 테이블 (신고)
   # ════════════════════════════════════════
   ReportsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
     Properties:
       TableName: !Sub "chupa-reports-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -189,6 +195,7 @@ Resources:
           AttributeType: S
         - AttributeName: reportedUserId
           AttributeType: S
+      DeletionProtectionEnabled: !If [IsProd, true, false]
       GlobalSecondaryIndexes:
         - IndexName: reportedUserId-index
           KeySchema:
