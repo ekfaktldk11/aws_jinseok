@@ -156,7 +156,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-user-${Environment}"
-      CodeUri: ../../lambda/user/
+      CodeUri: ../lambda/user/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
       Events:
@@ -184,7 +184,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-venue-${Environment}"
-      CodeUri: ../../lambda/venue/
+      CodeUri: ../lambda/venue/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
       Events:
@@ -206,7 +206,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-checkin-${Environment}"
-      CodeUri: ../../lambda/checkin/
+      CodeUri: ../lambda/checkin/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
       Events:
@@ -240,7 +240,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-chupa-${Environment}"
-      CodeUri: ../../lambda/chupa/
+      CodeUri: ../lambda/chupa/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
       Events:
@@ -268,7 +268,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-match-${Environment}"
-      CodeUri: ../../lambda/match/
+      CodeUri: ../lambda/match/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
       Events:
@@ -290,7 +290,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-report-${Environment}"
-      CodeUri: ../../lambda/report/
+      CodeUri: ../lambda/report/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
       Events:
