@@ -7,6 +7,10 @@ Parameters:
     Type: String
     Default: dev
     AllowedValues: [dev, prod]
+  KakaoMapApiKey:
+    Type: String
+    Description: "Kakao Map REST API Key"
+    NoEcho: true
 
 Globals:
   Function:
@@ -16,6 +20,7 @@ Globals:
     Environment:
       Variables:
         ENVIRONMENT: !Ref Environment
+        KAKAO_MAP_API_KEY: !Ref KakaoMapApiKey
         USERS_TABLE: !ImportValue
           Fn::Sub: "chupa-${Environment}-UsersTable"
         CHECKINS_TABLE: !ImportValue
