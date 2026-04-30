@@ -13,6 +13,10 @@ Globals:
     Runtime: nodejs24.x
     Timeout: 15
     MemorySize: 256
+    # API 스택에서 export 한 SharedLayer 를 모든 람다에 자동 첨부
+    Layers:
+      - !ImportValue
+        Fn::Sub: "chupa-${Environment}-SharedLayerArn"
     Environment:
       Variables:
         ENVIRONMENT: !Ref Environment
@@ -98,7 +102,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-ws-connect-${Environment}"
-      CodeUri: ../lambda/chat/
+      CodeUri: ../lambda/functions/chat/
       Handler: connect.handler
       Role: !GetAtt WebSocketLambdaRole.Arn
 
@@ -129,7 +133,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-ws-disconnect-${Environment}"
-      CodeUri: ../lambda/chat/
+      CodeUri: ../lambda/functions/chat/
       Handler: disconnect.handler
       Role: !GetAtt WebSocketLambdaRole.Arn
 
@@ -160,7 +164,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-ws-message-${Environment}"
-      CodeUri: ../lambda/chat/
+      CodeUri: ../lambda/functions/chat/
       Handler: sendMessage.handler
       Role: !GetAtt WebSocketLambdaRole.Arn
       Environment:
@@ -202,7 +206,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-notification-${Environment}"
-      CodeUri: ../lambda/notification/
+      CodeUri: ../lambda/functions/notification/
       Handler: index.handler
       Role: !GetAtt NotificationLambdaRole.Arn
       Events:
