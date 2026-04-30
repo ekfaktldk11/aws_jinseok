@@ -98,7 +98,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-ws-connect-${Environment}"
-      CodeUri: ../../lambda/chat/
+      CodeUri: ../lambda/chat/
       Handler: connect.handler
       Role: !GetAtt WebSocketLambdaRole.Arn
 
@@ -129,7 +129,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-ws-disconnect-${Environment}"
-      CodeUri: ../../lambda/chat/
+      CodeUri: ../lambda/chat/
       Handler: disconnect.handler
       Role: !GetAtt WebSocketLambdaRole.Arn
 
@@ -160,7 +160,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-ws-message-${Environment}"
-      CodeUri: ../../lambda/chat/
+      CodeUri: ../lambda/chat/
       Handler: sendMessage.handler
       Role: !GetAtt WebSocketLambdaRole.Arn
       Environment:
@@ -202,7 +202,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub "chupa-notification-${Environment}"
-      CodeUri: ../../lambda/notification/
+      CodeUri: ../lambda/notification/
       Handler: index.handler
       Role: !GetAtt NotificationLambdaRole.Arn
       Events:
