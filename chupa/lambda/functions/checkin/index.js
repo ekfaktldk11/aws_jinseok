@@ -1,5 +1,5 @@
 import { PutCommand, DeleteCommand, QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
-import { ddb, ok, created, badRequest, forbidden, serverError, getUserIdFromEvent } from "../shared/utils.js";
+import { ddb, ok, created, badRequest, forbidden, serverError, getUserIdFromEvent } from "chupa-shared";
 
 const CHECKINS_TABLE = process.env.CHECKINS_TABLE;
 const VENUE_CACHE_TABLE = process.env.VENUE_CACHE_TABLE;

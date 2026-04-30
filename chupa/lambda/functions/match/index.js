@@ -1,5 +1,5 @@
 import { QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
-import { ddb, ok, badRequest, notFound, serverError, getUserIdFromEvent } from "../shared/utils.js";
+import { ddb, ok, badRequest, notFound, serverError, getUserIdFromEvent } from "chupa-shared";
 
 const MATCHES_TABLE = process.env.MATCHES_TABLE;
 const USERS_TABLE = process.env.USERS_TABLE;

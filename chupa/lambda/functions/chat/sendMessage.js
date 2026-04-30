@@ -1,6 +1,6 @@
 import { PutCommand, QueryCommand, GetCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from "@aws-sdk/client-apigatewaymanagementapi";
-import { ddb } from "../shared/utils.js";
+import { ddb } from "chupa-shared";
 
 const MESSAGES_TABLE = process.env.MESSAGES_TABLE;
 const CONNECTIONS_TABLE = process.env.CONNECTIONS_TABLE;

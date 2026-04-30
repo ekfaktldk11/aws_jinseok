@@ -1,19 +1,8 @@
 import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
-import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
-import { ddb, ok, badRequest, serverError } from "../shared/utils.js";
+import { ddb, ok, badRequest, serverError } from "chupa-shared";
 
 const VENUE_CACHE_TABLE = process.env.VENUE_CACHE_TABLE;
-const ssm = new SSMClient({});
-let kakaoApiKey = null;
-
-async function getKakaoApiKey() {
-  if (kakaoApiKey) return kakaoApiKey;
-  const result = await ssm.send(new GetParameterCommand({
-    Name: `/chupa/${process.env.ENVIRONMENT}/kakao/mapApiKey`,
-  }));
-  kakaoApiKey = result.Parameter.Value;
-  return kakaoApiKey;
-}
+const KAKAO_MAP_API_KEY = process.env.KAKAO_MAP_API_KEY;
 
 function getCategoryLabel(groupName, fullName) {
   if (groupName === "카페") return "카페";
@@ -34,7 +23,6 @@ export const handler = async (event) => {
 
       if (!lat || !lng) return badRequest("위치 정보가 필요해요");
 
-      const apiKey = await getKakaoApiKey();
       const venues = [];
       const categories = category ? [category] : ["CE7", "FD6"];
 
@@ -50,7 +38,7 @@ export const handler = async (event) => {
 
         const response = await fetch(
           `https://dapi.kakao.com/v2/local/search/category.json?${params}`,
-          { headers: { Authorization: `KakaoAK ${apiKey}` } }
+          { headers: { Authorization: `KakaoAK ${KAKAO_MAP_API_KEY}` } }
         );
 
         if (!response.ok) {

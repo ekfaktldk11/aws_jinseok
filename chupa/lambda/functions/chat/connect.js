@@ -1,5 +1,5 @@
 import { PutCommand } from "@aws-sdk/lib-dynamodb";
-import { ddb } from "../shared/utils.js";
+import { ddb } from "chupa-shared";
 
 const TABLE = process.env.CONNECTIONS_TABLE;
 
