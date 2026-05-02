@@ -1,0 +1,308 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Chupa Stack 5/5 - Realtime (WebSocket API + Push Notification Subscriber)"
+
+# ════════════════════════════════════════════════════════════════
+# 이 스택이 만드는 것:
+#   1. WebSocket API ($connect, $disconnect, sendMessage)
+#   2. NotificationFunction — API 스택의 PushTopicArn 을 subscribe 해서 실제 푸시 발송
+#
+# API 스택의 SharedLayer 와 PushNotificationTopic 을 ImportValue 로 재사용한다.
+# ════════════════════════════════════════════════════════════════
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+
+  LogRetentionDays:
+    Type: Number
+    Default: 7
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 180, 365]
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+
+Globals:
+  Function:
+    Runtime: nodejs24.x
+    Timeout: 15
+    MemorySize: 256
+    Architectures:
+      - arm64
+    LoggingConfig:
+      LogFormat: JSON
+    # API 스택에서 만든 SharedLayer 를 자동 첨부
+    Layers:
+      - !ImportValue
+        Fn::Sub: "chupa-${Environment}-SharedLayerArn"
+    Tags:
+      Project: chupa
+      Environment: !Ref Environment
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        CONNECTIONS_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-ConnectionsTable"
+        MESSAGES_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-MessagesTable"
+        MATCHES_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-MatchesTable"
+        USERS_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-UsersTable"
+        PUSH_TOPIC_ARN: !ImportValue
+          Fn::Sub: "chupa-${Environment}-PushTopicArn"
+
+Resources:
+  # ════════════════════════════════════════
+  # WebSocket API
+  # ════════════════════════════════════════
+  WebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "chupa-ws-${Environment}"
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+
+  WebSocketStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref WebSocketApi
+      StageName: !Ref Environment
+      AutoDeploy: true
+      DefaultRouteSettings:
+        DataTraceEnabled: !If [IsProd, false, true]
+        LoggingLevel: INFO
+      AccessLogSettings:
+        DestinationArn: !GetAtt WebSocketAccessLogs.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","requestTime":"$context.requestTime","routeKey":"$context.routeKey","status":"$context.status"}'
+
+  WebSocketAccessLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/apigateway/chupa-ws-${Environment}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  # ════════════════════════════════════════
+  # WebSocket Lambda Role
+  # ════════════════════════════════════════
+  WebSocketLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                Resource:
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-ConnectionsTableArn"
+                  - !Sub
+                    - "${T}/index/*"
+                    - T: !ImportValue
+                        Fn::Sub: "chupa-${Environment}-ConnectionsTableArn"
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-MessagesTableArn"
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-MatchesTableArn"
+                  - !Sub
+                    - "${T}/index/*"
+                    - T: !ImportValue
+                        Fn::Sub: "chupa-${Environment}-MatchesTableArn"
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-UsersTableArn"
+        - PolicyName: WebSocketManage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: execute-api:ManageConnections
+                Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/${Environment}/*"
+        - PolicyName: SNSPublishForChat
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !ImportValue
+                  Fn::Sub: "chupa-${Environment}-PushTopicArn"
+
+  # ════════════════════════════════════════
+  # WebSocket Lambda Functions
+  # ════════════════════════════════════════
+  ConnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-ws-connect-${Environment}"
+      CodeUri: ../lambda/functions/chat/
+      Handler: connect.handler
+      Role: !GetAtt WebSocketLambdaRole.Arn
+
+  ConnectFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/chupa-ws-connect-${Environment}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  ConnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ConnectFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*"
+
+  ConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConnectFunction.Arn}/invocations"
+
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: "$connect"
+      Target: !Sub "integrations/${ConnectIntegration}"
+
+  DisconnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-ws-disconnect-${Environment}"
+      CodeUri: ../lambda/functions/chat/
+      Handler: disconnect.handler
+      Role: !GetAtt WebSocketLambdaRole.Arn
+
+  DisconnectFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/chupa-ws-disconnect-${Environment}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  DisconnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DisconnectFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*"
+
+  DisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DisconnectFunction.Arn}/invocations"
+
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: "$disconnect"
+      Target: !Sub "integrations/${DisconnectIntegration}"
+
+  SendMessageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-ws-message-${Environment}"
+      CodeUri: ../lambda/functions/chat/
+      Handler: sendMessage.handler
+      Role: !GetAtt WebSocketLambdaRole.Arn
+      Environment:
+        Variables:
+          WEBSOCKET_ENDPOINT: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+
+  SendMessageFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/chupa-ws-message-${Environment}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  SendMessagePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SendMessageFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*"
+
+  SendMessageIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SendMessageFunction.Arn}/invocations"
+
+  SendMessageRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: sendMessage
+      Target: !Sub "integrations/${SendMessageIntegration}"
+
+  # ════════════════════════════════════════
+  # Notification Lambda — API 스택의 PushNotificationTopic 을 subscribe
+  # 실제 푸시(FCM/APNs)를 발송하는 책임
+  # ════════════════════════════════════════
+  NotificationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-notification-${Environment}"
+      CodeUri: ../lambda/functions/notification/
+      Handler: index.handler
+      Role: !GetAtt NotificationLambdaRole.Arn
+      Events:
+        SNSTrigger:
+          Type: SNS
+          Properties:
+            Topic: !ImportValue
+              Fn::Sub: "chupa-${Environment}-PushTopicArn"
+
+  NotificationFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/chupa-notification-${Environment}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  NotificationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+Outputs:
+  WebSocketUrl:
+    Value: !Sub "wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+    Export:
+      Name: !Sub "chupa-${Environment}-WebSocketUrl"
+
+  WebSocketApiId:
+    Value: !Ref WebSocketApi
+    Export:
+      Name: !Sub "chupa-${Environment}-WebSocketApiId"
