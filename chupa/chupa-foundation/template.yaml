@@ -109,6 +109,8 @@ Resources:
       SupportedIdentityProviders:
         - COGNITO
         - !Ref KakaoIdentityProvider
+      # dev 환경에서는 다음 url 을 콘솔에서 직접 등록해주자.
+      # [chupa://callback (standalone 빌드용), exp://192.168.x.x:8081/--/callback (Expo Go 실기기용), exp://localhost:8081/--/callback (Expo Go 시뮬레이터용)]
       CallbackURLs:
         - !If [IsProd, !Ref ProdCallbackUrl, "exp://localhost:8081/callback"]
       LogoutURLs:
