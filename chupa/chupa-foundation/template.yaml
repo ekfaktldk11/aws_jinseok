@@ -69,6 +69,8 @@ Resources:
           AttributeDataType: String
           Mutable: true
           Required: false
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
       AccountRecoverySetting:
         RecoveryMechanisms:
           - Name: verified_email
