@@ -1,15 +1,15 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: "Chupa Stack 4/5 - API (REST API Gateway + Lambda + Shared Layer + Push Topic)"
+Description: "Chupa Stack 4/5 - API (REST API Gateway + Lambda + Push Topic)"
 
 # ════════════════════════════════════════════════════════════════
 # 이 스택이 만드는 것:
-#   1. SharedLayer (chupa-shared 공용 utils 패키지를 담은 Layer)
-#   2. PushNotificationTopic (SNS) — chupa/chat 람다가 publish, realtime의 notification 람다가 subscribe
-#   3. REST API Gateway + 6개 람다 (user/venue/checkin/chupa/match/report)
-#   4. Lambda 실행 IAM Role
-#   5. CORS 설정 (dev 는 *, prod 는 명시적 도메인 허용)
+#   1. PushNotificationTopic (SNS) — chupa/chat 람다가 publish, realtime의 notification 람다가 subscribe
+#   2. REST API Gateway + 6개 람다 (user/venue/checkin/chupa/match/report)
+#   3. Lambda 실행 IAM Role
+#   4. CORS 설정 (dev 는 *, prod 는 명시적 도메인 허용)
 #
+# 공유 코드(utils)는 각 함수 폴더의 shared.js 로 포함된다 (Layer 미사용).
 # 카카오 Map API 키는 여기서만 사용되므로 이 스택의 Parameter 로 받음.
 # ════════════════════════════════════════════════════════════════
 
@@ -75,25 +75,6 @@ Globals:
           Fn::Sub: "chupa-${Environment}-CdnDomain"
 
 Resources:
-  # ════════════════════════════════════════
-  # SharedLayer — 모든 람다가 import "chupa-shared" 로 사용
-  # AWS SDK v3 는 nodejs24.x 런타임에 포함되어 별도 의존성 없음
-  # ════════════════════════════════════════
-  SharedLayer:
-    Type: AWS::Serverless::LayerVersion
-    Properties:
-      LayerName: !Sub "chupa-shared-${Environment}"
-      Description: "Shared utilities (ddb client, response helpers, auth, SNS publish)"
-      ContentUri: ../lambda/layers/shared/
-      CompatibleRuntimes:
-        - nodejs24.x
-      CompatibleArchitectures:
-        - arm64
-        - x86_64
-      RetentionPolicy: Delete
-    Metadata:
-      BuildMethod: nodejs24.x
-
   # ════════════════════════════════════════
   # PushNotificationTopic — 모든 푸시 이벤트 진입점
   # publish: chupa, chat (sendMessage) 람다
@@ -238,8 +219,6 @@ Resources:
       CodeUri: ../lambda/functions/user/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
-      Layers:
-        - !Ref SharedLayer
       Events:
         GetProfile:
           Type: Api
@@ -273,8 +252,6 @@ Resources:
       CodeUri: ../lambda/functions/venue/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
-      Layers:
-        - !Ref SharedLayer
       Events:
         SearchNearby:
           Type: Api
@@ -302,8 +279,6 @@ Resources:
       CodeUri: ../lambda/functions/checkin/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
-      Layers:
-        - !Ref SharedLayer
       Events:
         CreateCheckIn:
           Type: Api
@@ -343,8 +318,6 @@ Resources:
       CodeUri: ../lambda/functions/chupa/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
-      Layers:
-        - !Ref SharedLayer
       Events:
         SendChupa:
           Type: Api
@@ -378,8 +351,6 @@ Resources:
       CodeUri: ../lambda/functions/match/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
-      Layers:
-        - !Ref SharedLayer
       Events:
         GetMatches:
           Type: Api
@@ -407,8 +378,6 @@ Resources:
       CodeUri: ../lambda/functions/report/
       Handler: index.handler
       Role: !GetAtt LambdaRole.Arn
-      Layers:
-        - !Ref SharedLayer
       Events:
         CreateReport:
           Type: Api
@@ -439,12 +408,6 @@ Outputs:
     Value: !Ref RestApi
     Export:
       Name: !Sub "chupa-${Environment}-RestApiId"
-
-  SharedLayerArn:
-    Value: !Ref SharedLayer
-    Description: "Realtime 스택이 import 하여 재사용"
-    Export:
-      Name: !Sub "chupa-${Environment}-SharedLayerArn"
 
   PushTopicArn:
     Value: !Ref PushNotificationTopic

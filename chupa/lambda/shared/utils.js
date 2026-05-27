@@ -1,3 +1,10 @@
+// ════════════════════════════════════════════════════════════════
+// Chupa 공유 유틸리티
+//
+// ※ 원본은 lambda/shared/utils.js 한 곳뿐입니다. 수정은 반드시 거기서.
+//   각 함수 폴더의 shared.js 는 sync-shared.js 가 복사한 사본이므로
+//   직접 수정하면 다음 동기화 때 덮어쓰여 사라집니다.
+// ════════════════════════════════════════════════════════════════
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";

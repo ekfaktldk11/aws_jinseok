@@ -1,5 +1,5 @@
 import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
-import { ddb, ok, badRequest, serverError } from "chupa-shared";
+import { ddb, ok, badRequest, serverError } from "./shared.js";
 
 const VENUE_CACHE_TABLE = process.env.VENUE_CACHE_TABLE;
 const KAKAO_MAP_API_KEY = process.env.KAKAO_MAP_API_KEY;

@@ -2,7 +2,7 @@ import { PutCommand, QueryCommand, GetCommand, UpdateCommand } from "@aws-sdk/li
 import {
   ddb, ok, created, badRequest, forbidden, serverError,
   getUserIdFromEvent, publishNotification,
-} from "chupa-shared";
+} from "./shared.js";
 
 const CHUPAS_TABLE = process.env.CHUPAS_TABLE;
 const MATCHES_TABLE = process.env.MATCHES_TABLE;

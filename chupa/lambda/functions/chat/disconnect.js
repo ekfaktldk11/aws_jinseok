@@ -1,5 +1,5 @@
 import { DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { ddb } from "chupa-shared";
+import { ddb } from "./shared.js";
 
 const TABLE = process.env.CONNECTIONS_TABLE;
 

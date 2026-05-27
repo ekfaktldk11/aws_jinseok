@@ -7,7 +7,8 @@ Description: "Chupa Stack 5/5 - Realtime (WebSocket API + Push Notification Subs
 #   1. WebSocket API ($connect, $disconnect, sendMessage)
 #   2. NotificationFunction — API 스택의 PushTopicArn 을 subscribe 해서 실제 푸시 발송
 #
-# API 스택의 SharedLayer 와 PushNotificationTopic 을 ImportValue 로 재사용한다.
+# API 스택의 PushNotificationTopic 을 ImportValue 로 재사용한다.
+# 공유 코드(utils)는 각 함수 폴더의 shared.js 로 포함된다 (Layer 미사용).
 # ════════════════════════════════════════════════════════════════
 
 Parameters:
@@ -35,10 +36,6 @@ Globals:
       - arm64
     LoggingConfig:
       LogFormat: JSON
-    # API 스택에서 만든 SharedLayer 를 자동 첨부
-    Layers:
-      - !ImportValue
-        Fn::Sub: "chupa-${Environment}-SharedLayerArn"
     Tags:
       Project: chupa
       Environment: !Ref Environment

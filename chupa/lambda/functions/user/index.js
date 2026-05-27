@@ -1,7 +1,7 @@
 import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { ddb, ok, badRequest, notFound, serverError, getUserIdFromEvent } from "chupa-shared";
+import { ddb, ok, badRequest, notFound, serverError, getUserIdFromEvent } from "./shared.js";
 
 const TABLE = process.env.USERS_TABLE;
 const BUCKET = process.env.IMAGE_BUCKET;
