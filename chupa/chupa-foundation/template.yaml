@@ -1,4 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
 Description: "Chupa Stack 1/5 - Foundation (Cognito, S3, CloudFront)"
 
 # ════════════════════════════════════════════════════════════════
@@ -45,6 +46,62 @@ Resources:
   # ════════════════════════════════════════
   # Cognito User Pool
   # ════════════════════════════════════════
+  # ════════════════════════════════════════
+  # PostConfirmation Lambda — 카카오 로그인 후 Users 테이블 자동 생성
+  # ════════════════════════════════════════
+  PostConfirmationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBPutUser
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                # database 스택보다 먼저 배포될 수 있으므로 ImportValue 대신 직접 참조
+                Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/chupa-users-${Environment}"
+
+  PostConfirmationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-post-confirmation-${Environment}"
+      CodeUri: ../lambda/functions/postConfirmation/
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      Timeout: 10
+      Role: !GetAtt PostConfirmationRole.Arn
+      Environment:
+        Variables:
+          USERS_TABLE: !Sub "chupa-users-${Environment}"
+      Tags:
+        Project: chupa
+        Environment: !Ref Environment
+
+  PostConfirmationFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/chupa-post-confirmation-${Environment}"
+      RetentionInDays: 7
+
+  PostConfirmationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt PostConfirmationFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
   UserPool:
     Type: AWS::Cognito::UserPool
     DeletionPolicy: !If [IsProd, Retain, Delete]
@@ -75,6 +132,8 @@ Resources:
         RecoveryMechanisms:
           - Name: verified_email
             Priority: 1
+      LambdaConfig:
+        PostConfirmation: !GetAtt PostConfirmationFunction.Arn
       DeletionProtection: !If [IsProd, ACTIVE, INACTIVE]
       UserPoolTags:
         Project: chupa
