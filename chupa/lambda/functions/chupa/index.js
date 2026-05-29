@@ -24,12 +24,14 @@ export const handler = async (event) => {
       if (!toUserId || !venueId) return badRequest("toUserId, venueId가 필요해요");
       if (toUserId === userId) return badRequest("자신에게는 추파를 던질 수 없어요");
 
-      const today = new Date().toISOString().slice(0, 10);
+      // 🛡️ 일일 한도 카운트: createdAt(ISO 8601 문자열) 의 사전식 범위 비교로 '오늘' 을 판정.
+      //    구버전 begins_with(createdAt, :today) 는 의도대로 동작하지 않아 범위 조건으로 교체.
+      const todayStart = new Date().toISOString().slice(0, 10) + "T00:00:00.000Z";
       const sentResult = await ddb.send(new QueryCommand({
         TableName: CHUPAS_TABLE,
         KeyConditionExpression: "fromUserId = :uid",
-        FilterExpression: "begins_with(createdAt, :today)",
-        ExpressionAttributeValues: { ":uid": userId, ":today": today },
+        FilterExpression: "createdAt >= :todayStart",
+        ExpressionAttributeValues: { ":uid": userId, ":todayStart": todayStart },
       }));
       if ((sentResult.Items?.length || 0) >= MAX_DAILY_CHUPAS) {
         return forbidden("오늘 추파를 다 사용했어요. 추파 패스로 무제한 이용하세요!");

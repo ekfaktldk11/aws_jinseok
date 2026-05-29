@@ -385,5 +385,5 @@ Layer 사용 시 cold start 증가 + 배포 복잡도 증가 문제 회피.
 - **WS 인증 미구현**: `$connect` 시 userId query param만 확인, JWT 검증 없음.
 - **채팅 히스토리 없음**: WebSocket 연결 중 수신한 메시지만 클라이언트에 존재. 앱 재시작 시 과거 메시지 소실.
 - **notification 미구현**: SNS 메시지 수신 후 `console.log`만 실행. 실제 푸시 미발송.
-- **추파 일일 한도 로직 버그**: `FilterExpression: "begins_with(createdAt, :today)"` — DynamoDB FilterExpression은 `begins_with`를 이렇게 직접 사용 불가. `attribute_exists`나 별도 날짜 인덱스 필요. 현재 `chupa/index.js:33` 참고.
+- ~~**추파 일일 한도 로직 버그**~~ **(해결됨, [5])**: 구버전 `begins_with(createdAt, :today)` 를 ISO 8601 사전식 범위 비교 `createdAt >= :todayStart`(= `YYYY-MM-DDT00:00:00.000Z`)로 교체. `chupa/index.js` POST `/chupas` 참고. 추후 트래픽 증가 시 날짜 GSI/카운터로 전환 검토.
 - **체크인 반경 검증 의존성**: VenueCache에 venue가 없으면 체크인 불가. 반드시 `/venues/nearby` 호출 → 캐시 저장 → 체크인 순서여야 함.
