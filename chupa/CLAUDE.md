@@ -355,20 +355,27 @@ Layer 사용 시 cold start 증가 + 배포 복잡도 증가 문제 회피.
 
 ---
 
-## 10. 다음 할 일 (우선순위 순)
+## 10. 구현 완료 (2026-05-27)
+
+| 작업 | 상태 | 비고 |
+|---|---|---|
+| Cognito PostConfirmation Lambda | ✅ | `lambda/functions/postConfirmation/`, foundation 템플릿 연결 |
+| DevicesTable | ✅ | `chupa-database/template.yaml` |
+| `POST /devices`, `DELETE /devices` | ✅ | `lambda/functions/device/`, api 템플릿 추가 |
+| notification lambda Expo Push | ✅ | `lambda/functions/notification/index.js` — DevicesTable 조회 → Expo Push API |
+| `GET /users/me/stats` | ✅ | user lambda |
+| `GET /users/{userId}/blocks` | ✅ | user lambda |
+| `DELETE /users/{userId}/block` | ✅ | user lambda |
+| `GET /matches/{matchId}/messages` | ✅ | match lambda, 페이지네이션(nextToken) 지원 |
+| `GET /geocode/reverse` | ✅ | venue lambda, 카카오 coord2address API 프록시 |
+
+## 11. 다음 할 일
 
 | 우선순위 | 작업 | 어디에 |
 |---|---|---|
-| **1** | Cognito PostConfirmation Lambda 구현 + 연결 | `lambda/functions/postConfirmation/` 신규, `chupa-foundation/template.yaml` |
-| **2** | DevicesTable 추가 | `chupa-database/template.yaml` |
-| **3** | `POST /devices`, `DELETE /devices/{token}` 구현 | `lambda/functions/device/` 신규, `chupa-api/template.yaml` |
-| **4** | notification lambda Expo Push 구현 | `lambda/functions/notification/index.js` |
-| **5** | `GET /users/me/stats` 구현 | `lambda/functions/user/index.js`, `chupa-api/template.yaml` |
-| **6** | `GET /users/{userId}/blocks`, `DELETE /users/{userId}/block` 구현 | `lambda/functions/user/index.js`, `chupa-api/template.yaml` |
-| **7** | `GET /matches/{matchId}/messages` (채팅 히스토리) | `lambda/functions/match/index.js`, `chupa-api/template.yaml` |
-| **8** | `GET /geocode/reverse` (역지오코딩 프록시) | `lambda/functions/venue/index.js` 또는 신규, `chupa-api/template.yaml` |
-| **9** | WebSocket `$connect` Lambda Authorizer 추가 | `chupa-realtime/template.yaml` |
-| **10** | EAS Build + 앱스토어 메타데이터 (클라이언트 작업) | — |
+| **1** | `sam deploy` 순서대로 재배포 (database → foundation → api → realtime) | 아래 배포 명령 참고 |
+| **2** | WebSocket `$connect` Lambda Authorizer 추가 (보안) | `chupa-realtime/template.yaml` |
+| **3** | EAS Build + 앱스토어 메타데이터 (클라이언트 작업) | — |
 
 ---
 
