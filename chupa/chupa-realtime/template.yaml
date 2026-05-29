@@ -52,6 +52,8 @@ Globals:
           Fn::Sub: "chupa-${Environment}-UsersTable"
         PUSH_TOPIC_ARN: !ImportValue
           Fn::Sub: "chupa-${Environment}-PushTopicArn"
+        DEVICES_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-DevicesTable"
 
 Resources:
   # ════════════════════════════════════════
@@ -292,6 +294,21 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DevicesTableRead
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                Resource:
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-DevicesTableArn"
+                  - !Sub
+                    - "${T}/index/*"
+                    - T: !ImportValue
+                        Fn::Sub: "chupa-${Environment}-DevicesTableArn"
 
 Outputs:
   WebSocketUrl:

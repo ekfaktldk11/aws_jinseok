@@ -69,6 +69,10 @@ Globals:
           Fn::Sub: "chupa-${Environment}-MatchesTable"
         REPORTS_TABLE: !ImportValue
           Fn::Sub: "chupa-${Environment}-ReportsTable"
+        MESSAGES_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-MessagesTable"
+        DEVICES_TABLE: !ImportValue
+          Fn::Sub: "chupa-${Environment}-DevicesTable"
         IMAGE_BUCKET: !ImportValue
           Fn::Sub: "chupa-${Environment}-ImageBucket"
         CDN_DOMAIN: !ImportValue
@@ -186,6 +190,14 @@ Resources:
                     - "${T}/index/*"
                     - T: !ImportValue
                         Fn::Sub: "chupa-${Environment}-ReportsTableArn"
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-MessagesTableArn"
+                  - !ImportValue
+                    Fn::Sub: "chupa-${Environment}-DevicesTableArn"
+                  - !Sub
+                    - "${T}/index/*"
+                    - T: !ImportValue
+                        Fn::Sub: "chupa-${Environment}-DevicesTableArn"
         - PolicyName: S3Access
           PolicyDocument:
             Version: "2012-10-17"
@@ -396,6 +408,33 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/aws/lambda/chupa-report-${Environment}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  DeviceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-device-${Environment}"
+      CodeUri: ../lambda/functions/device/
+      Handler: index.handler
+      Role: !GetAtt LambdaRole.Arn
+      Events:
+        RegisterDevice:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /devices
+            Method: POST
+        UnregisterDevice:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /devices
+            Method: DELETE
+
+  DeviceFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/chupa-device-${Environment}"
       RetentionInDays: !Ref LogRetentionDays
 
 Outputs:

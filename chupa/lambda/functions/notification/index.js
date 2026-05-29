@@ -1,53 +1,90 @@
-// SNS PushNotificationTopic 을 구독하여 실제 푸시(FCM/APNs)를 발송
-// 현재는 로깅만, 추후 FCM/APNs 연동 추가 예정
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 
-async function sendPush(userId, payload) {
-  // TODO: FCM/APNs 실제 푸시 전송
-  console.log(`[PUSH] userId=${userId}`, payload);
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const DEVICES_TABLE = process.env.DEVICES_TABLE;
+const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+
+async function getTokensForUser(userId) {
+  if (!DEVICES_TABLE) return [];
+  const result = await ddb.send(new QueryCommand({
+    TableName: DEVICES_TABLE,
+    KeyConditionExpression: "userId = :uid",
+    ExpressionAttributeValues: { ":uid": userId },
+  }));
+  return (result.Items || []).map((item) => item.token);
+}
+
+async function sendExpoNotifications(tokens, payload) {
+  if (!tokens.length) return;
+
+  const messages = tokens.map((to) => ({ to, sound: "default", ...payload }));
+
+  const res = await fetch(EXPO_PUSH_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(messages),
+  });
+
+  if (!res.ok) {
+    console.error(`Expo Push API HTTP ${res.status}`);
+    return;
+  }
+
+  const json = await res.json();
+  for (const ticket of json.data || []) {
+    if (ticket.status === "error") {
+      console.error("Expo ticket error:", ticket.message, ticket.details);
+    }
+  }
 }
 
 export const handler = async (event) => {
   for (const record of event.Records) {
-    const message = JSON.parse(record.Sns.Message);
-    const { type, userId, data } = message;
+    const { type, userId, data } = JSON.parse(record.Sns.Message);
 
-    console.log(`Sending notification: type=${type}, userId=${userId}`);
+    const tokens = await getTokensForUser(userId);
+    if (!tokens.length) {
+      console.log(`No tokens: userId=${userId} type=${type}`);
+      continue;
+    }
 
+    let payload;
     switch (type) {
       case "chupa_received":
-        await sendPush(userId, {
+        payload = {
           title: "추파 🫶",
           body: "누군가 추파를 던졌어요!",
           data: { screen: "ChupaList" },
-        });
+        };
         break;
-
       case "match_success":
-        await sendPush(userId, {
+        payload = {
           title: "매칭 성공! 🎉",
           body: `${data.partnerName}님과 매칭되었어요!`,
           data: { screen: "ChatRoom", matchId: data.matchId },
-        });
+        };
         break;
-
       case "new_message":
-        await sendPush(userId, {
-          title: `${data.senderName}`,
+        payload = {
+          title: data.senderName,
           body: data.preview,
           data: { screen: "ChatRoom", matchId: data.matchId },
-        });
+        };
         break;
-
       case "message_deadline":
-        await sendPush(userId, {
+        payload = {
           title: "⏰ 메시지 타이머",
           body: "매칭이 3시간 뒤 만료돼요. 지금 메시지를 보내세요!",
           data: { screen: "ChatRoom", matchId: data.matchId },
-        });
+        };
         break;
-
       default:
         console.warn(`Unknown notification type: ${type}`);
+        continue;
     }
+
+    await sendExpoNotifications(tokens, payload);
+    console.log(`Pushed type=${type} userId=${userId} tokens=${tokens.length}`);
   }
 };

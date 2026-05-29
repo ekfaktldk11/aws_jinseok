@@ -234,6 +234,32 @@ Resources:
         AttributeName: expiresAt
         Enabled: true
 
+  DevicesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "chupa-devices-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: token
+          KeyType: RANGE
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: token
+          AttributeType: S
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      GlobalSecondaryIndexes:
+        - IndexName: token-index   # 만료된 토큰 정리 등에 사용
+          KeySchema:
+            - AttributeName: token
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
 Outputs:
   UsersTableName:
     Value: !Ref UsersTable
@@ -290,3 +316,10 @@ Outputs:
   ConnectionsTableArn:
     Value: !GetAtt ConnectionsTable.Arn
     Export: { Name: !Sub "chupa-${Environment}-ConnectionsTableArn" }
+
+  DevicesTableName:
+    Value: !Ref DevicesTable
+    Export: { Name: !Sub "chupa-${Environment}-DevicesTable" }
+  DevicesTableArn:
+    Value: !GetAtt DevicesTable.Arn
+    Export: { Name: !Sub "chupa-${Environment}-DevicesTableArn" }
