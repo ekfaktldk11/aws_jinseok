@@ -24,6 +24,7 @@ export const handler = async (event) => {
         interests: [],
         age: null,
         status: "active",
+        signalConsent: false, // 🔒 2단계 수신 동의 게이팅용. MVP 미사용(기본 false).
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },

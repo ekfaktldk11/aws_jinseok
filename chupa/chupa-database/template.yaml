@@ -46,6 +46,9 @@ Resources:
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true   # dev 도 켬 - 비용 미미, 안전성 ↑
 
+  # 스키마리스(PAY_PER_REQUEST). 코드에서 추가하는 속성(level, expiresAt 등)은 정의 불필요.
+  # ⚠️ expiresAt 에 TTL 을 걸지 말 것 — 추파 '만료=삭제'는 '보낸 기록 보존'과 상충.
+  #    유효시간은 매칭 판정 시 expiresAt > now 필터로만 처리한다(chupa lambda).
   ChupasTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain

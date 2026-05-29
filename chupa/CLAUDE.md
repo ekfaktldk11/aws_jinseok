@@ -8,6 +8,12 @@
 
 **추파(Chupa)** 백엔드 인프라. AWS SAM(CloudFormation) 기반 멀티 스택 구조.
 
+**핵심 컨셉 — 거절의 비가시성 / 사일런트 추파(단방향)**
+- 추파의 유일한 정체성: "내가 어필해도 상대가 부담을 느낄 일이 없다."
+- 받는 사람은 자신이 추파를 받았다는 사실을 **일절 알 수 없다**(갈림길 A).
+- 매칭은 **양쪽이 독립적으로 서로에게 추파를 보냈을 때만** 성립(양방향 매칭, 유효시간 내).
+- MVP는 1단계(사일런트 추파)까지만. 2단계/수신 동의(signalConsent)는 데이터 구조에 자리만 확보.
+
 - **위치**: `aws_jinseok/chupa/`
 - **클라이언트**: 별도 React Native 저장소 (Expo SDK 54)
 - **환경**: dev (현재 운영 중) / prod (미구성)
@@ -96,8 +102,8 @@ chupa/
 | DELETE | `/checkins/{venueId}` | checkin | ✅ |
 | GET | `/checkins/me` | checkin | ✅ |
 | GET | `/checkins/venue/{venueId}` | checkin | ✅ |
-| POST | `/chupas` | chupa | ✅ 양방향 매칭 + 알림 |
-| GET | `/chupas/received` | chupa | ✅ |
+| POST | `/chupas` | chupa | ✅ 양방향 매칭(유효시간 필터), level/expiresAt 저장. 미성사 시 수신자 알림 없음 |
+| GET | `/chupas/received` | chupa | 🔒 MVP 항상 빈 배열(거절의 비가시성). 2단계 게이팅 자리만 |
 | GET | `/chupas/sent` | chupa | ✅ |
 | GET | `/matches` | match | ✅ |
 | GET | `/matches/{matchId}` | match | ✅ |
@@ -320,7 +326,8 @@ publishNotification({ type, userId, data })
 // → PUSH_TOPIC_ARN SNS → NotificationFunction
 ```
 
-`type` 값: `chupa_received`, `match_success`, `new_message`, `message_deadline`
+`type` 값: `match_success`, `new_message`, `message_deadline`
+> 🔒 `chupa_received` 는 notification enum에 잔존하나 **발송 경로에서 제거**(거절의 비가시성). chupa lambda는 호출하지 않고, notification lambda의 case 도 주석 처리.
 
 ### DynamoDB 클라이언트
 
@@ -352,6 +359,19 @@ Layer 사용 시 cold start 증가 + 배포 복잡도 증가 문제 회피.
 
 ### 9.6 WebSocket 인증
 현재 `$connect` 시 query parameter `?userId={cognitoSub}`로 식별. 토큰 검증 없음 — **보안 취약점**. 추후 Lambda Authorizer 추가 필요 (현재는 dev 단계라 허용).
+
+### 9.7 거절의 비가시성 (갈림길 A) — 미성사 추파 비노출 [1][2]
+받는 사람은 추파 수신을 알 수 없어야 한다. 따라서:
+- chupa lambda는 미성사(단방향) 추파에서 `chupa_received` 알림을 **발송하지 않음**. `match_success`만 발송.
+- `GET /chupas/received` 는 MVP에서 **항상 빈 배열** 반환(`toUserId-index` 조회 로직은 주석 보존).
+- notification lambda의 `chupa_received` case 도 주석 처리.
+- 2단계 확장 자리: `signalConsent=true AND level>=2` 인 추파에 한해서만 수신자에게 노출/알림 허용(게이팅 자리 주석).
+
+### 9.8 추파 단계/수신 동의/유효시간 — 구조만 확보 [3][4][6]
+- 추파 레코드에 `level`(Number, MVP 항상 1), `expiresAt`(Number, epoch sec) 추가. ChupasTable은 스키마리스라 템플릿 변경 없음.
+- `expiresAt` 에 **TTL 미설정** — 만료=삭제는 '보낸 기록 보존'과 상충. 유효성은 매칭 판정 시 `expiresAt > now` 필터로만 처리.
+- **매칭 시간창**: POST 시 `expiresAt = now + CHUPA_VALID_SECONDS`(현재 7일, 클라 config와 동일 유지). 역방향 추파가 만료 전일 때만 매칭 인정 → "동시 쌍방 일치"의 가혹함 완화.
+- Users 레코드에 `signalConsent`(boolean, 기본 false) 자리만 추가(2단계 게이팅용, MVP 미사용).
 
 ---
 

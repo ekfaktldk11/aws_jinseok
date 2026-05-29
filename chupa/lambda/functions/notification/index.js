@@ -51,13 +51,15 @@ export const handler = async (event) => {
 
     let payload;
     switch (type) {
-      case "chupa_received":
-        payload = {
-          title: "추파 🫶",
-          body: "누군가 추파를 던졌어요!",
-          data: { screen: "ChupaList" },
-        };
-        break;
+      // 🔒 제한(갈림길 A): chupa_received 는 받는 사람에게 추파 수신을 알리므로
+      //    MVP에서 발송 경로에서 제거. (chupa lambda의 publishNotification 호출 자체도 제거됨)
+      // case "chupa_received":
+      //   payload = {
+      //     title: "추파 🫶",
+      //     body: "누군가 추파를 던졌어요!",
+      //     data: { screen: "ChupaList" },
+      //   };
+      //   break;
       case "match_success":
         payload = {
           title: "매칭 성공! 🎉",
