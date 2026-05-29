@@ -2,6 +2,7 @@ import { QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { ddb, ok, badRequest, notFound, serverError, getUserIdFromEvent } from "./shared.js";
 
 const MATCHES_TABLE = process.env.MATCHES_TABLE;
+const MESSAGES_TABLE = process.env.MESSAGES_TABLE;
 const USERS_TABLE = process.env.USERS_TABLE;
 
 export const handler = async (event) => {
@@ -62,6 +63,43 @@ export const handler = async (event) => {
       }
 
       return ok({ match: result.Item });
+    }
+
+    // GET /matches/{matchId}/messages
+    if (method === "GET" && path === "/matches/{matchId}/messages") {
+      const { matchId } = event.pathParameters;
+
+      const matchResult = await ddb.send(new GetCommand({
+        TableName: MATCHES_TABLE,
+        Key: { matchId },
+      }));
+      if (!matchResult.Item) return notFound("매칭을 찾을 수 없어요");
+      if (matchResult.Item.user1Id !== userId && matchResult.Item.user2Id !== userId) {
+        return notFound("매칭을 찾을 수 없어요");
+      }
+
+      const limit = Math.min(parseInt(event.queryStringParameters?.limit || "50"), 100);
+      const nextTokenRaw = event.queryStringParameters?.nextToken;
+      const exclusiveStartKey = nextTokenRaw
+        ? JSON.parse(Buffer.from(nextTokenRaw, "base64url").toString())
+        : undefined;
+
+      const params = {
+        TableName: MESSAGES_TABLE,
+        KeyConditionExpression: "matchId = :mid",
+        ExpressionAttributeValues: { ":mid": matchId },
+        ScanIndexForward: false,
+        Limit: limit,
+      };
+      if (exclusiveStartKey) params.ExclusiveStartKey = exclusiveStartKey;
+
+      const result = await ddb.send(new QueryCommand(params));
+
+      const nextToken = result.LastEvaluatedKey
+        ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString("base64url")
+        : null;
+
+      return ok({ messages: result.Items || [], nextToken });
     }
 
     return badRequest("지원하지 않는 요청이에요");

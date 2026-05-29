@@ -92,6 +92,33 @@ export const handler = async (event) => {
       return ok({ venue: result.Item });
     }
 
+    // GET /geocode/reverse?lat=&lng=
+    if (method === "GET" && path === "/geocode/reverse") {
+      const { lat, lng } = event.queryStringParameters || {};
+      if (!lat || !lng) return badRequest("lat, lng가 필요해요");
+
+      const params = new URLSearchParams({ x: lng, y: lat });
+      const response = await fetch(
+        `https://dapi.kakao.com/v2/local/geo/coord2address.json?${params}`,
+        { headers: { Authorization: `KakaoAK ${KAKAO_MAP_API_KEY}` } }
+      );
+
+      if (!response.ok) {
+        console.error(`Kakao geocode error: ${response.status}`);
+        return serverError("주소 변환에 실패했어요");
+      }
+
+      const data = await response.json();
+      const doc = data.documents?.[0];
+
+      if (!doc) return ok({ address: null, neighborhood: null });
+
+      const address = doc.road_address?.address_name || doc.address?.address_name || null;
+      const neighborhood = doc.address?.region_3depth_name || null;
+
+      return ok({ address, neighborhood });
+    }
+
     return badRequest("지원하지 않는 요청이에요");
   } catch (err) {
     console.error("Venue Lambda Error:", err);

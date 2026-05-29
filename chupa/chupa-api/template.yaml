@@ -250,6 +250,24 @@ Resources:
             RestApiId: !Ref RestApi
             Path: /users/{userId}/upload-url
             Method: POST
+        GetMyStats:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /users/me/stats
+            Method: GET
+        GetBlocks:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /users/{userId}/blocks
+            Method: GET
+        UnblockUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /users/{userId}/block
+            Method: DELETE
 
   UserFunctionLogGroup:
     Type: AWS::Logs::LogGroup
@@ -276,6 +294,12 @@ Resources:
           Properties:
             RestApiId: !Ref RestApi
             Path: /venues/{venueId}
+            Method: GET
+        ReverseGeocode:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /geocode/reverse
             Method: GET
 
   VenueFunctionLogGroup:
@@ -375,6 +399,12 @@ Resources:
           Properties:
             RestApiId: !Ref RestApi
             Path: /matches/{matchId}
+            Method: GET
+        GetMatchMessages:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /matches/{matchId}/messages
             Method: GET
 
   MatchFunctionLogGroup:
