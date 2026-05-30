@@ -1,4 +1,4 @@
-import { PutCommand, DeleteCommand, QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, DeleteCommand, QueryCommand, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { ddb, ok, created, badRequest, forbidden, serverError, getUserIdFromEvent } from "./shared.js";
 
 const CHECKINS_TABLE = process.env.CHECKINS_TABLE;
@@ -60,6 +60,20 @@ export const handler = async (event) => {
           distance: Math.round(distance),
         },
       }));
+
+      // 누적 체크인 카운터(원자적 증가). CheckIns는 2h TTL이라 이력이 남지 않으므로
+      //   "지금까지 체크인한 총 횟수"는 Users 레코드에 누적한다. (POST 1회 = +1)
+      //   ※ 통계 실패가 체크인 자체를 막지 않도록 await 하되 에러는 삼킨다.
+      try {
+        await ddb.send(new UpdateCommand({
+          TableName: USERS_TABLE,
+          Key: { userId },
+          UpdateExpression: "ADD totalCheckins :one",
+          ExpressionAttributeValues: { ":one": 1 },
+        }));
+      } catch (err) {
+        console.error("totalCheckins increment failed:", err);
+      }
 
       return created({
         message: "체크인 완료!",
