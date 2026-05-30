@@ -105,9 +105,11 @@ chupa/
 | POST | `/chupas` | chupa | ✅ 양방향 매칭(유효시간 필터), level/expiresAt 저장. 미성사 시 수신자 알림 없음 |
 | GET | `/chupas/received` | chupa | 🔒 MVP 항상 빈 배열(거절의 비가시성). 2단계 게이팅 자리만 |
 | GET | `/chupas/sent` | chupa | ✅ |
+| DELETE | `/users/{userId}` | user | ✅ 계정 영구 삭제(Cognito+추파/매칭/메시지/체크인/디바이스), 본인만 |
 | GET | `/matches` | match | ✅ |
 | GET | `/matches/{matchId}` | match | ✅ |
 | POST | `/reports` | report | ✅ 자동 밴 로직 포함 |
+| GET | `/reports/me` | report | ✅ 내가 접수한 신고 목록(reporterUserId-index) |
 
 ### WebSocket (Stack 5)
 
@@ -115,8 +117,8 @@ chupa/
 |---|---|---|
 | `$connect` | connect.js | ✅ userId 쿼리 파라미터로 식별 |
 | `$disconnect` | disconnect.js | ✅ |
-| `sendMessage` | sendMessage.js | ✅ 오프라인 시 푸시 트리거 |
-| SNS → 푸시 | notification/index.js | ⚠️ 로깅만, FCM/APNs 미구현 |
+| `sendMessage` | sendMessage.js | ✅ 참가자/차단/길이(≤1000)·sanitize/첫메시지 24h 검증 + 양쪽 참가자 fan-out(발신자 멀티디바이스 포함), 오프라인 시 푸시 |
+| SNS → 푸시 | notification/index.js | ✅ Expo Push 발송 (DevicesTable 조회) |
 
 ---
 
@@ -389,11 +391,22 @@ Layer 사용 시 cold start 증가 + 배포 복잡도 증가 문제 회피.
 | `GET /matches/{matchId}/messages` | ✅ | match lambda, 페이지네이션(nextToken) 지원 |
 | `GET /geocode/reverse` | ✅ | venue lambda, 카카오 coord2address API 프록시 |
 
+## 10.1 구현 완료 (2026-05-30) — 클라 계약 잔여 항목
+
+| 작업 | 상태 | 비고 |
+|---|---|---|
+| `DELETE /users/{userId}` 계정 삭제 | ✅ | user lambda `deleteAccount()` — Cognito AdminDeleteUser + 추파(보낸/받은)/매칭+메시지/체크인/디바이스/유저 레코드 BatchWrite 삭제. 본인만. api 템플릿에 `USER_POOL_ID` env + `cognito-idp:AdminDeleteUser` 권한 + DELETE 이벤트 추가 |
+| `GET /reports/me` | ✅ | report lambda. ReportsTable에 `reporterUserId-index`(HASH reporterUserId + RANGE createdAt) GSI 신설. 응답 Report shape({id, reportedName, reason, detail?, status, createdAt}), reportedName 은 Users 조회 |
+| `GET /users/me/stats` 계약 정렬 | ✅ | `{ sentChupas, matches, checkins, receivedChupas, remainingChupas }` 로 교체(기존 `totalMatches`→`matches`, `checkins`/`remainingChupas` 신설). remainingChupas=서버 권위 일일 잔여(5-오늘발송) |
+| 누적 체크인 카운터 | ✅ | checkin lambda `POST /checkins` 성공 시 Users 레코드에 `ADD totalCheckins :1`(원자적). stats의 `checkins`는 이 값을 읽음. CheckIns는 2h TTL이라 COUNT로는 누적 불가 → **배포 시점부터 0에서 누적**(과거 백필 불가) |
+| `GET /users/{userId}/blocks` 계약 정렬 | ✅ | id 목록 대신 차단 유저 전체 프로필 배열 `{ blocks: User[], count }` 반환(email/blockedUsers 제외) |
+| WS `sendMessage` 서버 권위 강화 | ✅ | ① 참가자 ② 차단(양방향) ③ sanitize+길이≤1000 ④ 첫메시지 24h 마감 검증, 양쪽 참가자 fan-out(발신자 멀티디바이스, 본인 connection 제외), 에러는 `{action:'error',code,message}` push |
+
 ## 11. 다음 할 일
 
 | 우선순위 | 작업 | 어디에 |
 |---|---|---|
-| **1** | `sam deploy` 순서대로 재배포 (database → foundation → api → realtime) | 아래 배포 명령 참고 |
+| **1** | `sam deploy` 순서대로 재배포 — DB(GSI 추가) → foundation → **api(USER_POOL_ID·Cognito 권한·DELETE/GET 라우트)** → realtime(sendMessage 코드) | 아래 배포 명령 참고 |
 | **2** | WebSocket `$connect` Lambda Authorizer 추가 (보안) | `chupa-realtime/template.yaml` |
 | **3** | EAS Build + 앱스토어 메타데이터 (클라이언트 작업) | — |
 
@@ -403,7 +416,7 @@ Layer 사용 시 cold start 증가 + 배포 복잡도 증가 문제 회피.
 
 - **Cognito dev CallbackURL**: `template.yaml`에 `exp://localhost:8081/callback`만 등록. Expo Go 실기기에서 테스트하려면 `exp://192.168.x.x:8081/--/callback` 콘솔에서 수동 추가 필요.
 - **WS 인증 미구현**: `$connect` 시 userId query param만 확인, JWT 검증 없음.
-- **채팅 히스토리 없음**: WebSocket 연결 중 수신한 메시지만 클라이언트에 존재. 앱 재시작 시 과거 메시지 소실.
-- **notification 미구현**: SNS 메시지 수신 후 `console.log`만 실행. 실제 푸시 미발송.
+- ~~**채팅 히스토리 없음**~~ **(해결됨)**: `GET /matches/{matchId}/messages` 로 과거 메시지 조회 가능(페이지네이션).
+- ~~**notification 미구현**~~ **(해결됨)**: notification lambda가 DevicesTable 조회 후 Expo Push API 로 실제 발송.
 - ~~**추파 일일 한도 로직 버그**~~ **(해결됨, [5])**: 구버전 `begins_with(createdAt, :today)` 를 ISO 8601 사전식 범위 비교 `createdAt >= :todayStart`(= `YYYY-MM-DDT00:00:00.000Z`)로 교체. `chupa/index.js` POST `/chupas` 참고. 추후 트래픽 증가 시 날짜 GSI/카운터로 전환 검토.
 - **체크인 반경 검증 의존성**: VenueCache에 venue가 없으면 체크인 불가. 반드시 `/venues/nearby` 호출 → 캐시 저장 → 체크인 순서여야 함.
