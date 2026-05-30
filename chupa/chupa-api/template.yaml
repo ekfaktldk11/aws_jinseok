@@ -57,6 +57,8 @@ Globals:
         ENVIRONMENT: !Ref Environment
         KAKAO_MAP_API_KEY: !Ref KakaoMapApiKey
         PUSH_TOPIC_ARN: !Ref PushNotificationTopic
+        USER_POOL_ID: !ImportValue          # 계정 삭제(AdminDeleteUser)용
+          Fn::Sub: "chupa-${Environment}-UserPoolId"
         USERS_TABLE: !ImportValue
           Fn::Sub: "chupa-${Environment}-UsersTable"
         CHECKINS_TABLE: !ImportValue
@@ -220,6 +222,15 @@ Resources:
               - Effect: Allow
                 Action: sns:Publish
                 Resource: !Ref PushNotificationTopic
+        - PolicyName: CognitoDeleteUser
+          # DELETE /users/{userId} 계정 삭제 시 Cognito 유저 제거.
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: cognito-idp:AdminDeleteUser
+                Resource: !ImportValue
+                  Fn::Sub: "chupa-${Environment}-UserPoolArn"
 
   # ════════════════════════════════════════
   # Lambda Functions
@@ -244,6 +255,12 @@ Resources:
             RestApiId: !Ref RestApi
             Path: /users/{userId}
             Method: PUT
+        DeleteAccount:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /users/{userId}
+            Method: DELETE
         GetUploadUrl:
           Type: Api
           Properties:
