@@ -1,4 +1,4 @@
-import { PutCommand, UpdateCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, UpdateCommand, QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { ddb, ok, created, badRequest, serverError, getUserIdFromEvent } from "./shared.js";
 
 const REPORTS_TABLE = process.env.REPORTS_TABLE;
@@ -55,6 +55,38 @@ export const handler = async (event) => {
       }
 
       return created({ message: "신고가 접수되었어요. 검토 후 조치할게요.", reportId });
+    }
+
+    // GET /reports/me — 내가 접수한 신고 목록 (최신순)
+    //   응답 shape(Report): { id, reportedName, reason, detail?, status, createdAt }
+    if (method === "GET" && path === "/reports/me") {
+      const result = await ddb.send(new QueryCommand({
+        TableName: REPORTS_TABLE,
+        IndexName: "reporterUserId-index",
+        KeyConditionExpression: "reporterUserId = :uid",
+        ExpressionAttributeValues: { ":uid": userId },
+        ScanIndexForward: false,
+      }));
+
+      const reports = await Promise.all((result.Items || []).map(async (r) => {
+        let reportedName = "알 수 없는 사용자";
+        try {
+          const u = await ddb.send(new GetCommand({ TableName: USERS_TABLE, Key: { userId: r.reportedUserId } }));
+          if (u.Item?.name) reportedName = u.Item.name;
+        } catch (err) {
+          console.error("reportedName lookup failed:", err);
+        }
+        return {
+          id: r.reportId,
+          reportedName,
+          reason: r.reason,
+          ...(r.detail ? { detail: r.detail } : {}),
+          status: r.status || "pending",
+          createdAt: r.createdAt,
+        };
+      }));
+
+      return ok({ reports });
     }
 
     // POST /users/{userId}/block

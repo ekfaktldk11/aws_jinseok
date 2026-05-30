@@ -157,14 +157,26 @@ Resources:
           AttributeType: S
         - AttributeName: reportedUserId
           AttributeType: S
+        - AttributeName: reporterUserId
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
       DeletionProtectionEnabled: !If [IsProd, true, false]
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
       GlobalSecondaryIndexes:
-        - IndexName: reportedUserId-index
+        - IndexName: reportedUserId-index   # 자동 밴 판정(신고 누적 카운트)
           KeySchema:
             - AttributeName: reportedUserId
               KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: reporterUserId-index    # GET /reports/me (내가 접수한 신고, createdAt 정렬)
+          KeySchema:
+            - AttributeName: reporterUserId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
           Projection:
             ProjectionType: ALL
 

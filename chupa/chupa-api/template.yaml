@@ -444,6 +444,12 @@ Resources:
             RestApiId: !Ref RestApi
             Path: /reports
             Method: POST
+        GetMyReports:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /reports/me
+            Method: GET
         BlockUser:
           Type: Api
           Properties:
