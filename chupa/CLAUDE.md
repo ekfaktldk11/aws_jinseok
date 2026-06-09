@@ -93,8 +93,8 @@ chupa/
 | Method | Path | Lambda | 상태 |
 |---|---|---|---|
 | GET | `/users/{userId}` | user | ✅ |
-| PUT | `/users/{userId}` | user | ✅ |
-| POST | `/users/{userId}/upload-url` | user | ✅ |
+| PUT | `/users/{userId}` | user | ✅ `photos`(CDN URL 배열, 전체 치환) 저장 + 교체된 옛 S3 객체 정리 |
+| POST | `/users/{userId}/upload-url` | user | ✅ 버전드 키(`photo-{i}-{uuid}.jpg`) presigned PUT. photoIndex(0~2)/contentType(image/jpeg) 검증 |
 | POST | `/users/{userId}/block` | report | ✅ |
 | POST | `/venues/nearby` | venue | ✅ 카카오 Map API |
 | GET | `/venues/{venueId}` | venue | ✅ |
@@ -401,6 +401,19 @@ Layer 사용 시 cold start 증가 + 배포 복잡도 증가 문제 회피.
 | 누적 체크인 카운터 | ✅ | checkin lambda `POST /checkins` 성공 시 Users 레코드에 `ADD totalCheckins :1`(원자적). stats의 `checkins`는 이 값을 읽음. CheckIns는 2h TTL이라 COUNT로는 누적 불가 → **배포 시점부터 0에서 누적**(과거 백필 불가) |
 | `GET /users/{userId}/blocks` 계약 정렬 | ✅ | id 목록 대신 차단 유저 전체 프로필 배열 `{ blocks: User[], count }` 반환(email/blockedUsers 제외) |
 | WS `sendMessage` 서버 권위 강화 | ✅ | ① 참가자 ② 차단(양방향) ③ sanitize+길이≤1000 ④ 첫메시지 24h 마감 검증, 양쪽 참가자 fan-out(발신자 멀티디바이스, 본인 connection 제외), 에러는 `{action:'error',code,message}` push |
+
+## 10.2 구현 완료 (2026-06-09) — 프로필 사진 presigned 업로드 + DB 영속화
+
+클라 핸드오프 반영. **코드 변경은 `user/index.js` 한 파일**, 템플릿(env/IAM)은 기존 그대로 충족(IMAGE_BUCKET·CDN_DOMAIN env + s3 Put/Get/Delete 권한 모두 기존재).
+
+| 작업 | 상태 | 비고 |
+|---|---|---|
+| `POST /users/{userId}/upload-url` 버전드 키 | ✅ | 키를 `users/{userId}/photo-{photoIndex}-{uuid}.jpg` 로 변경(업로드마다 고유 → 같은 슬롯 교체 시에도 키가 달라져 **CDN stale 캐시 0**). photoIndex(0≤i<3 정수)·contentType(`image/jpeg` 화이트리스트) 검증 추가. `randomUUID` from `node:crypto` |
+| `PUT /users/{userId}` photos 저장 | ✅ | body `photos`(CDN URL 배열) 수신 시 **전체 치환**(패치 아님). 🛡️ `https://{CDN_DOMAIN}/users/{userId}/` 접두사 하위 URL만 허용(임의 URL/타인 경로 주입 차단), 최대 3장. 갱신 전 기존 photos 읽어 **더 이상 참조 안 되는 옛 S3 객체 `DeleteObject`(best-effort)** |
+| `GET /users/{userId}` / 라운지 사진 노출 | ✅ | 별도 코드 없음 — `GET /users/{userId}`는 `result.Item` 그대로, checkin `GET /checkins/venue/{venueId}`는 `{email, blockedUsers, ...profile}` 펼침이라 **`photos` 자동 포함** |
+
+> **흐름**: ① `POST upload-url`→presigned PUT URL 발급 ② 앱이 S3에 직접 PUT ③ 성공한 `cdnUrl`만 `PUT /users` `photos`에 담아 전송 → "DB엔 URL, S3엔 파일 없음" 불일치 없음.
+> **미반영(권장·선택)**: CloudFront Response Headers Policy(`Cache-Control: ...immutable`). 키가 버전드라 stale 문제는 키 차원에서 이미 해소돼 동작엔 불필요. 캐시 적중률 최적화가 필요하면 foundation 스택 `CloudFrontDistribution`에 추가. 고아 객체(presign 후 PUT /users 전 앱 종료) 정리도 MVP는 방치(비용 미미), 필요 시 S3 Lifecycle.
 
 ## 11. 다음 할 일
 

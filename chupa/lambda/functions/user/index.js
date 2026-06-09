@@ -1,6 +1,7 @@
 import { GetCommand, UpdateCommand, QueryCommand, DeleteCommand, BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { PutObjectCommand, DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { randomUUID } from "node:crypto";
 import { CognitoIdentityProviderClient, AdminDeleteUserCommand } from "@aws-sdk/client-cognito-identity-provider";
 import { ddb, ok, badRequest, forbidden, notFound, serverError, getUserIdFromEvent } from "./shared.js";
 
@@ -14,6 +15,8 @@ const USER_POOL_ID = process.env.USER_POOL_ID;
 const BUCKET = process.env.IMAGE_BUCKET;
 const CDN_DOMAIN = process.env.CDN_DOMAIN;
 const MAX_DAILY_CHUPAS = 5; // 📡 chupa lambda 와 동일 값 유지 (서버 권위 일일 잔여 계산용)
+const PHOTO_SLOTS = 3;      // 프로필 사진 슬롯 수 (클라 PHOTO_SLOTS 와 동일)
+const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg"]); // presign ContentType 화이트리스트 (클라 고정 전송)
 const s3 = new S3Client({});
 const cognito = new CognitoIdentityProviderClient({});
 
@@ -123,25 +126,54 @@ export const handler = async (event) => {
       if (userId !== currentUserId) return badRequest("본인 프로필만 수정할 수 있어요");
 
       const body = JSON.parse(event.body);
-      const { name, bio, interests, age } = body;
+      const { name, bio, interests, age, photos } = body;
 
       if (bio && bio.length > 50) return badRequest("한 줄 소개는 50자까지예요");
       if (interests && interests.length > 5) return badRequest("관심사는 5개까지예요");
 
+      const values = {
+        ":name": name,
+        ":bio": bio || "",
+        ":interests": interests || [],
+        ":age": age,
+        ":now": new Date().toISOString(),
+      };
+      let setExpr = "#name = :name, bio = :bio, interests = :interests, age = :age, updatedAt = :now";
+
+      // 프로필 사진: 클라가 보낸 "현재 전체 목록"으로 전체 치환(패치 아님).
+      //   🛡️ 우리 CDN + 본인 경로(/users/{userId}/) 하위 URL만 허용 — 임의 URL/타인 경로 주입 차단.
+      let removedPhotos = [];
+      if (Array.isArray(photos)) {
+        const prefix = `https://${CDN_DOMAIN}/users/${userId}/`;
+        const nextPhotos = photos
+          .filter((u) => typeof u === "string" && u.startsWith(prefix))
+          .slice(0, PHOTO_SLOTS);
+
+        // 교체로 더 이상 참조되지 않는 옛 객체 정리용 — 기존 photos 미리 읽기.
+        const cur = await ddb.send(new GetCommand({ TableName: TABLE, Key: { userId } }));
+        const oldPhotos = cur.Item?.photos || [];
+        const keep = new Set(nextPhotos);
+        removedPhotos = oldPhotos.filter((u) => !keep.has(u));
+
+        setExpr += ", photos = :photos";
+        values[":photos"] = nextPhotos;
+      }
+
       const result = await ddb.send(new UpdateCommand({
         TableName: TABLE,
         Key: { userId },
-        UpdateExpression: "SET #name = :name, bio = :bio, interests = :interests, age = :age, updatedAt = :now",
+        UpdateExpression: `SET ${setExpr}`,
         ExpressionAttributeNames: { "#name": "name" },
-        ExpressionAttributeValues: {
-          ":name": name,
-          ":bio": bio || "",
-          ":interests": interests || [],
-          ":age": age,
-          ":now": new Date().toISOString(),
-        },
+        ExpressionAttributeValues: values,
         ReturnValues: "ALL_NEW",
       }));
+
+      // 더 이상 참조 안 되는 옛 S3 객체 삭제(best-effort) — 실패해도 응답엔 영향 없음.
+      if (removedPhotos.length) {
+        await Promise.allSettled(removedPhotos.map((url) =>
+          s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: url.replace(`https://${CDN_DOMAIN}/`, "") }))
+        ));
+      }
 
       return ok(result.Attributes);
     }
@@ -154,11 +186,17 @@ export const handler = async (event) => {
       const body = JSON.parse(event.body);
       const { photoIndex, contentType } = body;
 
-      const key = `users/${userId}/photo-${photoIndex}.jpg`;
+      if (!Number.isInteger(photoIndex) || photoIndex < 0 || photoIndex >= PHOTO_SLOTS)
+        return badRequest("photoIndex 가 올바르지 않아요");
+      if (!ALLOWED_CONTENT_TYPES.has(contentType))
+        return badRequest("이미지는 image/jpeg 만 업로드할 수 있어요");
+
+      // 버전드 키: 업로드마다 uuid 가 바뀌어 같은 슬롯을 교체해도 키가 달라짐 → CDN stale 캐시 0.
+      const key = `users/${userId}/photo-${photoIndex}-${randomUUID()}.jpg`;
       const command = new PutObjectCommand({
         Bucket: BUCKET,
         Key: key,
-        ContentType: contentType || "image/jpeg",
+        ContentType: contentType,
       });
 
       const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
