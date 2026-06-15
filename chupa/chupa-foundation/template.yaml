@@ -47,7 +47,9 @@ Resources:
   # Cognito User Pool
   # ════════════════════════════════════════
   # ════════════════════════════════════════
-  # PostConfirmation Lambda — 카카오 로그인 후 Users 테이블 자동 생성
+  # 유저 프로비저닝 Lambda — 카카오 로그인 시 Users 테이블 레코드 자동 생성
+  #   (리소스명은 PostConfirmation* 로 남아있으나 실제 트리거는 PostAuthentication.
+  #    카카오=OIDC 페더레이션은 PostConfirmation 미발생이라 PostAuthentication 으로 연결.)
   # ════════════════════════════════════════
   PostConfirmationRole:
     Type: AWS::IAM::Role
@@ -133,7 +135,9 @@ Resources:
           - Name: verified_email
             Priority: 1
       LambdaConfig:
-        PostConfirmation: !GetAtt PostConfirmationFunction.Arn
+        # 카카오(OIDC 페더레이션) 로그인은 PostConfirmation 이 발생하지 않으므로
+        #   매 로그인마다 발생하는 PostAuthentication 으로 Users 레코드 생성을 보장.
+        PostAuthentication: !GetAtt PostConfirmationFunction.Arn
       DeletionProtection: !If [IsProd, ACTIVE, INACTIVE]
       UserPoolTags:
         Project: chupa

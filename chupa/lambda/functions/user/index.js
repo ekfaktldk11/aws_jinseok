@@ -131,14 +131,32 @@ export const handler = async (event) => {
       if (bio && bio.length > 50) return badRequest("한 줄 소개는 50자까지예요");
       if (interests && interests.length > 5) return badRequest("관심사는 5개까지예요");
 
-      const values = {
-        ":name": name,
-        ":bio": bio || "",
-        ":interests": interests || [],
-        ":age": age,
-        ":now": new Date().toISOString(),
-      };
-      let setExpr = "#name = :name, bio = :bio, interests = :interests, age = :age, updatedAt = :now";
+      // 보낸 필드만 부분 갱신한다(모든 필드 동일 규칙).
+      //   미전송 필드를 ExpressionAttributeValues 에 undefined 로 넣으면 마샬링 단계에서
+      //   값이 빠져, 표현식엔 ":x" 가 남지만 값이 없어
+      //   ValidationException("expression attribute value ... is not defined") 이 난다.
+      //   → 정의된 필드만 SET 절 + 값에 함께 추가. (예: age/name 누락 row 도 안전)
+      const sets = ["updatedAt = :now"];
+      const values = { ":now": new Date().toISOString() };
+      const names = {};
+
+      if (name !== undefined) {
+        sets.push("#name = :name"); // name 은 DynamoDB 예약어 → #name 별칭 필수
+        names["#name"] = "name";
+        values[":name"] = name;
+      }
+      if (bio !== undefined) {
+        sets.push("bio = :bio");
+        values[":bio"] = bio || "";
+      }
+      if (interests !== undefined) {
+        sets.push("interests = :interests");
+        values[":interests"] = interests || [];
+      }
+      if (age !== undefined) {
+        sets.push("age = :age");
+        values[":age"] = age;
+      }
 
       // 프로필 사진: 클라가 보낸 "현재 전체 목록"으로 전체 치환(패치 아님).
       //   🛡️ 우리 CDN + 본인 경로(/users/{userId}/) 하위 URL만 허용 — 임의 URL/타인 경로 주입 차단.
@@ -155,15 +173,16 @@ export const handler = async (event) => {
         const keep = new Set(nextPhotos);
         removedPhotos = oldPhotos.filter((u) => !keep.has(u));
 
-        setExpr += ", photos = :photos";
+        sets.push("photos = :photos");
         values[":photos"] = nextPhotos;
       }
 
       const result = await ddb.send(new UpdateCommand({
         TableName: TABLE,
         Key: { userId },
-        UpdateExpression: `SET ${setExpr}`,
-        ExpressionAttributeNames: { "#name": "name" },
+        UpdateExpression: `SET ${sets.join(", ")}`,
+        // #name(예약어 별칭)은 name 을 보낸 경우에만 존재 — 비었으면 키 자체 생략(빈/미사용 맵은 거부됨).
+        ...(Object.keys(names).length ? { ExpressionAttributeNames: names } : {}),
         ExpressionAttributeValues: values,
         ReturnValues: "ALL_NEW",
       }));

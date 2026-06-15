@@ -64,15 +64,22 @@ export const handler = async (event) => {
       // 누적 체크인 카운터(원자적 증가). CheckIns는 2h TTL이라 이력이 남지 않으므로
       //   "지금까지 체크인한 총 횟수"는 Users 레코드에 누적한다. (POST 1회 = +1)
       //   ※ 통계 실패가 체크인 자체를 막지 않도록 await 하되 에러는 삼킨다.
+      //   🛡️ attribute_exists(userId): 프로필 레코드가 있는 유저만 증가.
+      //      조건이 없으면 ADD가 {userId, totalCheckins}짜리 고아 레코드를 신규 생성해
+      //      이후 GET/PUT /users 가 깨진다(프로필 없는 깡통 레코드).
       try {
         await ddb.send(new UpdateCommand({
           TableName: USERS_TABLE,
           Key: { userId },
           UpdateExpression: "ADD totalCheckins :one",
+          ConditionExpression: "attribute_exists(userId)",
           ExpressionAttributeValues: { ":one": 1 },
         }));
       } catch (err) {
-        console.error("totalCheckins increment failed:", err);
+        // 유저 레코드가 없으면 카운터를 만들지 않고 조용히 무시(체크인은 정상 처리).
+        if (err.name !== "ConditionalCheckFailedException") {
+          console.error("totalCheckins increment failed:", err);
+        }
       }
 
       return created({
