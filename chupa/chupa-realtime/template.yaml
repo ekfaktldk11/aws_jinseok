@@ -145,6 +145,64 @@ Resources:
                   Fn::Sub: "chupa-${Environment}-PushTopicArn"
 
   # ════════════════════════════════════════
+  # $connect Lambda Authorizer — Cognito id_token 검증
+  #   클라는 wss://.../{stage}?token={id_token} 으로 연결.
+  #   토큰이 없으면 API GW 가 핸드셰이크를 401 로 거부(IdentitySource 누락),
+  #   무효하면 authorizer 가 Deny → 403. 통과 시 context.userId(sub) 를 $connect 로 전달.
+  # ════════════════════════════════════════
+  AuthorizerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      # JWKS 는 HTTPS 로 받고 AWS API 호출이 없어 추가 권한 불필요(최소 권한 — 로그만).
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  AuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "chupa-ws-authorizer-${Environment}"
+      CodeUri: ../lambda/functions/chat/
+      Handler: authorizer.handler
+      Role: !GetAtt AuthorizerLambdaRole.Arn
+      Environment:
+        Variables:
+          USER_POOL_ID: !ImportValue
+            Fn::Sub: "chupa-${Environment}-UserPoolId"
+          CLIENT_ID: !ImportValue
+            Fn::Sub: "chupa-${Environment}-UserPoolClientId"
+
+  AuthorizerFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/chupa-ws-authorizer-${Environment}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  AuthorizerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AuthorizerFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*"
+
+  WebSocketAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref WebSocketApi
+      Name: !Sub "chupa-ws-authorizer-${Environment}"
+      AuthorizerType: REQUEST
+      AuthorizerUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunction.Arn}/invocations"
+      IdentitySource:
+        - "route.request.querystring.token"
+
+  # ════════════════════════════════════════
   # WebSocket Lambda Functions
   # ════════════════════════════════════════
   ConnectFunction:
@@ -181,6 +239,8 @@ Resources:
     Properties:
       ApiId: !Ref WebSocketApi
       RouteKey: "$connect"
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref WebSocketAuthorizer
       Target: !Sub "integrations/${ConnectIntegration}"
 
   DisconnectFunction:

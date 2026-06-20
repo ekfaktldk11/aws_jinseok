@@ -360,7 +360,8 @@ Layer 사용 시 cold start 증가 + 배포 복잡도 증가 문제 회피.
 클라이언트 노출 금지 → `chupa-api` 스택의 Lambda 환경변수로만 관리. venue lambda에서 서버사이드 호출.
 
 ### 9.6 WebSocket 인증
-현재 `$connect` 시 query parameter `?userId={cognitoSub}`로 식별. 토큰 검증 없음 — **보안 취약점**. 추후 Lambda Authorizer 추가 필요 (현재는 dev 단계라 허용).
+`$connect` 에 **Lambda Authorizer**(`chat/authorizer.js`) 적용 — 클라가 `wss://.../{stage}?token={id_token}` 로 연결하면 Cognito id_token 을 검증(JWKS 서명·exp·iss·`token_use=id`·aud=clientId)하고, 통과 시 `context.userId`(=sub)를 `$connect` 로 전달. `connect.js` 는 **이 검증된 sub 만 신뢰**(쿼리스트링 `?userId=` 신뢰 제거). 토큰 없으면 API GW 가 401, 무효하면 authorizer 가 Deny→403.
+> ⚠️ **클라 브레이킹**: 연결 쿼리가 `?userId=` → **`?token={id_token}`** 로 바뀜. 클라 업데이트와 함께 배포해야 함.
 
 ### 9.7 거절의 비가시성 (갈림길 A) — 미성사 추파 비노출 [1][2]
 받는 사람은 추파 수신을 알 수 없어야 한다. 따라서:
@@ -445,6 +446,7 @@ Layer 사용 시 cold start 증가 + 배포 복잡도 증가 문제 회피.
 - **`PUT /users/{userId}`** — `age` 직접 전송 금지, **`birthdate`(ISO, 예 `2000-05-15`)** 전송 → 서버가 만 나이 `age` 계산해 응답. 만 19세 미만/형식오류 `400`. (`photos` 전체 치환·`bio`≤50·`interests`≤5 는 기존 그대로)
 - **`GET /matches/{matchId}/messages`** — **시간 오름차순**, 비참가자 **403**(매칭 없음 404), `?nextToken=&limit=`(기본 50/최대 100). 메시지 포맷은 WS `newMessage.message` 와 동일(`{matchId,timestamp,senderId,content,type}`).
 - **`POST /devices`** — `platform` 에 `web` 허용(`ios|android|web`). 해제는 `DELETE /devices` **body** `{token}`.
+- **WebSocket 연결** ⚠️ 브레이킹 — 연결 URL 이 `wss://.../{stage}?userId={sub}` → **`wss://.../{stage}?token={id_token}`** 로 변경. userId 는 서버가 토큰에서 도출(쿼리 userId 무시). 토큰 없음/무효 시 핸드셰이크 거부(401/403). (백엔드 realtime 재배포와 **동시 전환** 필요)
 - **Apple 로그인** — provider 이름 정확히 **`SignInWithApple`**, callback `chupa://callback`, scope `openid email profile`. Hosted UI authorize:
   `…/oauth2/authorize?identity_provider=SignInWithApple&redirect_uri=chupa://callback&response_type=code&client_id={clientId}&scope=openid+email+profile`
   (Apple 은 name 을 최초 1회만 제공 → 최초 로그인 직후 `PUT /users` 로 저장 권장. Kakao 는 provider 이름 `Kakao` 그대로.)
@@ -454,8 +456,9 @@ Layer 사용 시 cold start 증가 + 배포 복잡도 증가 문제 회피.
 | 우선순위 | 작업 | 어디에 |
 |---|---|---|
 | ~~1~~ | ~~전체 재배포(DB→foundation→api→realtime) + Apple IdP~~ **(완료 2026-06-20, 전 스택 배포 + Apple `SignInWithApple` live)** | — |
-| **1** | WebSocket `$connect` Lambda Authorizer 추가 (보안) | `chupa-realtime/template.yaml` |
-| **2** | E2E 검증 — Apple 로그인 왕복 + 바뀐 엔드포인트 스모크(204/birthdate·age/messages 403·오름차순) | 클라 앱 / 실제 id_token |
+| ~~2~~ | ~~WebSocket `$connect` Lambda Authorizer~~ **(코드 완료 2026-06-20 — `chat/authorizer.js`)**. ⚠️ **클라 브레이킹**: 클라가 `?token={id_token}` 적용한 뒤 realtime 재배포(미적용 시 WS 전면 401) | `chupa-realtime` |
+| **1** | realtime 재배포 — **클라 `?token=` 전환과 동시에** | `cd chupa-realtime && sam build && sam deploy --config-env dev` |
+| **2** | E2E 검증 — Apple 로그인 왕복 + 바뀐 엔드포인트 스모크(204/birthdate·age/messages 403·오름차순) + WS `?token=` 연결 | 클라 앱 / 실제 id_token |
 | **3** | EAS Build + 앱스토어 메타데이터 (클라이언트 작업) | — |
 | **4** | prod 환경 구성 (🔴1) — prod Cognito/스택 + Apple **prod용 Services ID** 세트 | prod 스택 |
 
@@ -464,7 +467,7 @@ Layer 사용 시 cold start 증가 + 배포 복잡도 증가 문제 회피.
 ## 11. 알려진 이슈 및 제약
 
 - **Cognito dev CallbackURL**: `template.yaml`에 `exp://localhost:8081/callback`만 등록. Expo Go 실기기에서 테스트하려면 `exp://192.168.x.x:8081/--/callback` 콘솔에서 수동 추가 필요.
-- **WS 인증 미구현**: `$connect` 시 userId query param만 확인, JWT 검증 없음.
+- ~~**WS 인증 미구현**~~ **(해결됨, 코드)**: `$connect` Lambda Authorizer 가 id_token 검증(`chat/authorizer.js`). 연결 쿼리 `?token={id_token}`. **클라 브레이킹** — 클라 `?token=` 적용 후 realtime 재배포 필요.
 - ~~**채팅 히스토리 없음**~~ **(해결됨)**: `GET /matches/{matchId}/messages` 로 과거 메시지 조회 가능(페이지네이션).
 - ~~**notification 미구현**~~ **(해결됨)**: notification lambda가 DevicesTable 조회 후 Expo Push API 로 실제 발송.
 - ~~**추파 일일 한도 로직 버그**~~ **(해결됨, [5])**: 구버전 `begins_with(createdAt, :today)` 를 ISO 8601 사전식 범위 비교 `createdAt >= :todayStart`(= `YYYY-MM-DDT00:00:00.000Z`)로 교체. `chupa/index.js` POST `/chupas` 참고. 추후 트래픽 증가 시 날짜 GSI/카운터로 전환 검토.

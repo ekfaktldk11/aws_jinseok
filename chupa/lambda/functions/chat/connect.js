@@ -5,9 +5,11 @@ const TABLE = process.env.CONNECTIONS_TABLE;
 
 export const handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
-  const userId = event.queryStringParameters?.userId;
+  // 🛡️ userId 는 검증된 토큰(authorizer context)에서만 받는다.
+  //   쿼리스트링 ?userId= 신뢰 제거 → 연결 주체 위조 차단(authorizer 가 sub 를 주입).
+  const userId = event.requestContext.authorizer?.userId;
 
-  if (!userId) return { statusCode: 401, body: "userId required" };
+  if (!userId) return { statusCode: 401, body: "Unauthorized" };
 
   await ddb.send(new PutCommand({
     TableName: TABLE,
