@@ -29,6 +29,31 @@ Parameters:
     Description: "Kakao OAuth Client Secret"
     NoEcho: true
 
+  # ── Apple 로그인(Sign in with Apple) ───────────────────────────
+  # 네 값이 모두 Apple Developer 콘솔 수동 발급물이다. 비어있으면(기본값 "")
+  # IdP 를 만들지 않는다(HasAppleConfig 조건) → 값 없이도 dev 배포가 깨지지 않음.
+  # 값이 준비되면 배포 시 --parameter-overrides 로 주입한다.
+  AppleServicesId:
+    Type: String
+    Default: ""
+    Description: "Apple Services ID = Cognito client_id (예: kr.chupa.signin)"
+
+  AppleTeamId:
+    Type: String
+    Default: ""
+    Description: "Apple Developer Team ID (10자)"
+
+  AppleKeyId:
+    Type: String
+    Default: ""
+    Description: "Sign in with Apple 용 private key 의 Key ID (10자)"
+
+  ApplePrivateKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: "Apple private key(.p8) 본문 (-----BEGIN PRIVATE KEY----- 포함, 개행 유지)"
+
   ProdCallbackUrl:
     Type: String
     Default: "https://app.chupa.kr/callback"
@@ -41,6 +66,8 @@ Parameters:
 
 Conditions:
   IsProd: !Equals [!Ref Environment, prod]
+  # Apple Services ID 가 주입됐을 때만 Apple IdP 를 생성/연결한다.
+  HasAppleConfig: !Not [!Equals [!Ref AppleServicesId, ""]]
 
 Resources:
   # ════════════════════════════════════════
@@ -160,6 +187,30 @@ Resources:
         name: nickname
         picture: profile_image_url
 
+  # ════════════════════════════════════════
+  # Apple 로그인 IdP (Sign in with Apple)
+  #   ⚠️ 클라는 provider 이름을 정확히 "SignInWithApple" 로 기대한다.
+  #      Cognito 의 SignInWithApple 타입은 ProviderName 이 항상 "SignInWithApple" 로
+  #      고정되므로 이 기대가 자동 충족된다.
+  #   Apple Services ID 등 크레덴셜이 비어있으면 이 리소스를 만들지 않는다(HasAppleConfig).
+  # ════════════════════════════════════════
+  AppleIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: HasAppleConfig
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: SignInWithApple
+      ProviderType: SignInWithApple
+      ProviderDetails:
+        client_id: !Ref AppleServicesId   # Apple Services ID
+        team_id: !Ref AppleTeamId
+        key_id: !Ref AppleKeyId
+        private_key: !Ref ApplePrivateKey
+        authorize_scopes: "email name"    # Apple 이 지원하는 scope (name 은 최초 1회만 제공)
+      AttributeMapping:
+        # Apple 의 name 클레임은 최초 인증 1회만, 구조화 객체로 와서 매핑이 불안정 → email 만 매핑.
+        email: email
+
   UserPoolClient:
     Type: AWS::Cognito::UserPoolClient
     Properties:
@@ -170,14 +221,18 @@ Resources:
         - ALLOW_USER_SRP_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
         - ALLOW_CUSTOM_AUTH
-      # SupportedIdentityProviders 의 !Ref 가 KakaoIdentityProvider 생성 순서를 자동 보장
-      SupportedIdentityProviders:
-        - COGNITO
-        - !Ref KakaoIdentityProvider
-      # dev 환경에서는 다음 url 을 콘솔에서 직접 등록해주자.
-      # [chupa://callback (standalone 빌드용), exp://192.168.x.x:8081/--/callback (Expo Go 실기기용), exp://localhost:8081/--/callback (Expo Go 시뮬레이터용)]
+      # SupportedIdentityProviders 의 !Ref 가 각 IdP 생성 순서를 자동 보장.
+      #   Apple 은 크레덴셜이 주입된 경우(HasAppleConfig)에만 목록에 포함한다.
+      #   (Fn::If 는 선택된 분기만 평가하므로 false 일 때 AppleIdentityProvider 참조 오류 없음.)
+      SupportedIdentityProviders: !If
+        - HasAppleConfig
+        - [COGNITO, !Ref KakaoIdentityProvider, !Ref AppleIdentityProvider]
+        - [COGNITO, !Ref KakaoIdentityProvider]
+      # chupa://callback (standalone/Apple 로그인용) 은 IaC 로 고정 등록.
+      # dev 의 Expo Go 실기기 url(exp://192.168.x.x:8081/--/callback) 은 콘솔에서 추가.
       CallbackURLs:
         - !If [IsProd, !Ref ProdCallbackUrl, "exp://localhost:8081/callback"]
+        - "chupa://callback"
       LogoutURLs:
         - !If [IsProd, !Ref ProdLogoutUrl, "exp://localhost:8081/logout"]
       AllowedOAuthFlows: [code]

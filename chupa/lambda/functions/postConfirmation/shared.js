@@ -34,6 +34,11 @@ export function created(body) {
   return { statusCode: 201, headers, body: JSON.stringify(body) };
 }
 
+// 본문 없는 성공 응답(204). 등록/해제/삭제처럼 돌려줄 데이터가 없는 경우 사용.
+export function noContent() {
+  return { statusCode: 204, headers, body: "" };
+}
+
 export function badRequest(message) {
   return { statusCode: 400, headers, body: JSON.stringify({ error: message }) };
 }

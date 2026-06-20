@@ -3,7 +3,7 @@ import { PutObjectCommand, DeleteObjectCommand, S3Client } from "@aws-sdk/client
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
 import { CognitoIdentityProviderClient, AdminDeleteUserCommand } from "@aws-sdk/client-cognito-identity-provider";
-import { ddb, ok, badRequest, forbidden, notFound, serverError, getUserIdFromEvent } from "./shared.js";
+import { ddb, ok, noContent, badRequest, forbidden, notFound, serverError, getUserIdFromEvent } from "./shared.js";
 
 const TABLE = process.env.USERS_TABLE;
 const CHUPAS_TABLE = process.env.CHUPAS_TABLE;
@@ -16,6 +16,7 @@ const BUCKET = process.env.IMAGE_BUCKET;
 const CDN_DOMAIN = process.env.CDN_DOMAIN;
 const MAX_DAILY_CHUPAS = 5; // 📡 chupa lambda 와 동일 값 유지 (서버 권위 일일 잔여 계산용)
 const PHOTO_SLOTS = 3;      // 프로필 사진 슬롯 수 (클라 PHOTO_SLOTS 와 동일)
+const MIN_AGE = 19;         // 만 19세 (서버 권위 가입/이용 연령 하한)
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg"]); // presign ContentType 화이트리스트 (클라 고정 전송)
 const s3 = new S3Client({});
 const cognito = new CognitoIdentityProviderClient({});
@@ -23,6 +24,18 @@ const cognito = new CognitoIdentityProviderClient({});
 // ════════════════════════════════════════════
 // 헬퍼
 // ════════════════════════════════════════════
+
+// 만 나이 계산 — birthdate(ISO 8601 날짜)로부터 오늘 기준 만 나이를 반환.
+//   형식이 잘못됐으면 null. (미래 날짜는 음수가 나와 MIN_AGE 미만으로 걸러진다.)
+function calcAge(birthdate) {
+  const b = new Date(birthdate);
+  if (Number.isNaN(b.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - b.getFullYear();
+  const monthDiff = now.getMonth() - b.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < b.getDate())) age--;
+  return age;
+}
 
 // DynamoDB BatchWrite 는 한 번에 25개까지 → 청크 단위로 삭제.
 async function batchDelete(tableName, keys) {
@@ -123,7 +136,7 @@ async function updateUser(event, currentUserId) {
   const { userId } = event.pathParameters;
   if (userId !== currentUserId) return badRequest("본인 프로필만 수정할 수 있어요");
 
-  const { name, bio, interests, age, photos } = JSON.parse(event.body);
+  const { name, bio, interests, age, birthdate, photos } = JSON.parse(event.body);
 
   if (bio && bio.length > 50) return badRequest("한 줄 소개는 50자까지예요");
   if (interests && interests.length > 5) return badRequest("관심사는 5개까지예요");
@@ -148,7 +161,17 @@ async function updateUser(event, currentUserId) {
     sets.push("interests = :interests");
     values[":interests"] = interests || [];
   }
-  if (age !== undefined) {
+  // 나이 권위: birthdate(ISO 8601 날짜)를 저장하고 만 나이를 서버에서 계산한다.
+  //   🛡️ 클라가 보낸 age 는 신뢰하지 않는다 — birthdate 가 있으면 항상 파생값으로 덮어쓴다.
+  if (birthdate !== undefined) {
+    const derivedAge = calcAge(birthdate);
+    if (derivedAge === null) return badRequest("생년월일 형식이 올바르지 않아요");
+    if (derivedAge < MIN_AGE) return badRequest(`만 ${MIN_AGE}세 이상만 이용할 수 있어요`);
+    sets.push("birthdate = :birthdate", "age = :age");
+    values[":birthdate"] = birthdate;
+    values[":age"] = derivedAge;
+  } else if (age !== undefined) {
+    // 하위호환: birthdate 없이 age 만 보내는 구버전 클라 — 그대로 저장.
     sets.push("age = :age");
     values[":age"] = age;
   }
@@ -269,7 +292,7 @@ async function deleteUser(event, currentUserId) {
   if (userId !== currentUserId) return forbidden("본인 계정만 삭제할 수 있어요");
 
   await deleteAccount(userId);
-  return ok({ message: "계정이 삭제되었어요" });
+  return noContent();
 }
 
 // DELETE /users/{userId}/block — 차단 해제
@@ -284,7 +307,7 @@ async function unblockUser(event, currentUserId) {
     ExpressionAttributeValues: { ":target": new Set([targetUserId]) },
   }));
 
-  return ok({ message: "차단이 해제되었어요" });
+  return noContent();
 }
 
 // ════════════════════════════════════════════

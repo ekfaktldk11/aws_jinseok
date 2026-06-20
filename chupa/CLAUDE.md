@@ -93,7 +93,7 @@ chupa/
 | Method | Path | Lambda | 상태 |
 |---|---|---|---|
 | GET | `/users/{userId}` | user | ✅ |
-| PUT | `/users/{userId}` | user | ✅ `photos`(CDN URL 배열, 전체 치환) 저장 + 교체된 옛 S3 객체 정리 |
+| PUT | `/users/{userId}` | user | ✅ `photos`(CDN URL 배열, 전체 치환) 저장 + 교체된 옛 S3 객체 정리. `birthdate`(ISO) 수신 시 나이 권위로 저장 + 만 나이 `age` 서버 계산(만 19세 미만 거부, 클라 age 불신) |
 | POST | `/users/{userId}/upload-url` | user | ✅ 버전드 키(`photo-{i}-{uuid}.jpg`) presigned PUT. photoIndex(0~2)/contentType(image/jpeg) 검증 |
 | POST | `/users/{userId}/block` | report | ✅ |
 | POST | `/venues/nearby` | venue | ✅ 카카오 Map API |
@@ -415,13 +415,49 @@ Layer 사용 시 cold start 증가 + 배포 복잡도 증가 문제 회피.
 > **흐름**: ① `POST upload-url`→presigned PUT URL 발급 ② 앱이 S3에 직접 PUT ③ 성공한 `cdnUrl`만 `PUT /users` `photos`에 담아 전송 → "DB엔 URL, S3엔 파일 없음" 불일치 없음.
 > **미반영(권장·선택)**: CloudFront Response Headers Policy(`Cache-Control: ...immutable`). 키가 버전드라 stale 문제는 키 차원에서 이미 해소돼 동작엔 불필요. 캐시 적중률 최적화가 필요하면 foundation 스택 `CloudFrontDistribution`에 추가. 고아 객체(presign 후 PUT /users 전 앱 종료) 정리도 MVP는 방치(비용 미미), 필요 시 S3 Lifecycle.
 
+## 10.3 구현 완료 (2026-06-17) — 출시 전 검토 우선순위표 반영
+
+클라 출시 전 검토(우선순위표)의 백엔드 몫을 반영. 대부분(§4·§7-1~7-6·§7-7.2~3)은 이미 구현돼 **검증만** 했고, 실제 변경은 아래 5건.
+
+| 작업 | 상태 | 비고 |
+|---|---|---|
+| **§3 Apple 로그인 IdP** | ✅ 배포 완료 (2026-06-20, IdP `SignInWithApple` live) | `chupa-foundation/template.yaml` — `AppleIdentityProvider`(ProviderType/Name `SignInWithApple`) 추가. 크레덴셜 4종(`AppleServicesId`/`AppleTeamId`/`AppleKeyId`/`ApplePrivateKey`) Parameter(기본 `""`) + `HasAppleConfig` 조건 → **값 없으면 미생성**(dev 배포 안 깨짐). App Client `SupportedIdentityProviders` 에 `!If [HasAppleConfig, ...]` 로 포함, `CallbackURLs` 에 `chupa://callback` 고정. Apple Developer Service ID/Key 발급은 콘솔 수동(아래 절차) → 값 받으면 `--parameter-overrides` 주입 |
+| **§4 device 계약 정렬** | ✅ | `device/index.js` — `platform` 화이트리스트에 `web` 추가, `POST/DELETE /devices` 응답을 `204`(본문 없음)로 변경 |
+| **§7-7.1 birthdate→age** | ✅ | `user/index.js` `updateUser` — `birthdate`(ISO) 저장 + 만 나이 `age` 서버 계산(`calcAge`), 만 19세 미만 거부, 클라 `age` 불신(birthdate 있으면 파생값으로 덮어씀). birthdate 없이 age 만 보내는 구버전은 하위호환 |
+| **§7-2 messages 계약 정렬** | ✅ | `match/index.js` — 비참가자 응답 `404`→**`403`**, 메시지 **시간 오름차순**(최신순 페이지를 페이지 내부에서 `reverse`). 포맷은 WS `newMessage.message` 와 동일 |
+| **§7-3/§7-5 DELETE 응답 정렬** | ✅ | `user/index.js` — `DELETE /users/{userId}`, `DELETE /users/{userId}/block` 응답을 `204`(본문 없음)로 변경 |
+| (공통) `noContent()` 헬퍼 | ✅ | `lambda/shared/utils.js` 에 204 헬퍼 추가 후 `node sync-shared.js` 동기화 |
+
+> **Apple Developer 콘솔 수동 절차(값 발급 → CFN 주입)**
+> 1. Apple Developer → **Certificates, IDs & Profiles**.
+> 2. **Identifiers → App ID** 생성/선택 후 *Sign In with Apple* capability 활성화.
+> 3. **Identifiers → Services ID** 생성(예: `kr.chupa.signin`). 이 값이 `AppleServicesId`(= Cognito `client_id`).
+>    - *Sign In with Apple* 설정에서 **Domains**: `chupa-auth-dev.auth.ap-northeast-2.amazoncognito.com`,
+>      **Return URLs**: `https://chupa-auth-dev.auth.ap-northeast-2.amazoncognito.com/oauth2/idpresponse` 등록.
+> 4. **Keys** → 새 Key 생성, *Sign In with Apple* 체크 → `.p8` 다운로드. Key 의 **Key ID** = `AppleKeyId`, `.p8` 본문 = `ApplePrivateKey`.
+> 5. 우상단 멤버십의 **Team ID**(10자) = `AppleTeamId`.
+> 6. 배포: `cd chupa-foundation && sam build && sam deploy --config-env dev --parameter-overrides KakaoClientId=... KakaoClientSecret=... AppleServicesId=kr.chupa.signin AppleTeamId=XXXXXXXXXX AppleKeyId=YYYYYYYYYY ApplePrivateKey="$(cat AuthKey_YYYYYYYYYY.p8)"`
+> 7. (참고) Kakao Custom OIDC IdP(`Kakao`)는 이미 등록돼 있음 — 별도 작업 불필요.
+
+### 10.3.1 클라 계약 영향 (핸드오프 — 클라가 맞춰야 하는 변경)
+
+- **204 No Content(본문 없음)** — `POST /devices`, `DELETE /devices`, `DELETE /users/{userId}`, `DELETE /users/{userId}/block`. 클라는 응답 body 파싱 금지, 2xx/204 로 성공 판정(이전 `200/201` + `{message}` 폐기).
+- **`PUT /users/{userId}`** — `age` 직접 전송 금지, **`birthdate`(ISO, 예 `2000-05-15`)** 전송 → 서버가 만 나이 `age` 계산해 응답. 만 19세 미만/형식오류 `400`. (`photos` 전체 치환·`bio`≤50·`interests`≤5 는 기존 그대로)
+- **`GET /matches/{matchId}/messages`** — **시간 오름차순**, 비참가자 **403**(매칭 없음 404), `?nextToken=&limit=`(기본 50/최대 100). 메시지 포맷은 WS `newMessage.message` 와 동일(`{matchId,timestamp,senderId,content,type}`).
+- **`POST /devices`** — `platform` 에 `web` 허용(`ios|android|web`). 해제는 `DELETE /devices` **body** `{token}`.
+- **Apple 로그인** — provider 이름 정확히 **`SignInWithApple`**, callback `chupa://callback`, scope `openid email profile`. Hosted UI authorize:
+  `…/oauth2/authorize?identity_provider=SignInWithApple&redirect_uri=chupa://callback&response_type=code&client_id={clientId}&scope=openid+email+profile`
+  (Apple 은 name 을 최초 1회만 제공 → 최초 로그인 직후 `PUT /users` 로 저장 권장. Kakao 는 provider 이름 `Kakao` 그대로.)
+
 ## 11. 다음 할 일
 
 | 우선순위 | 작업 | 어디에 |
 |---|---|---|
-| **1** | `sam deploy` 순서대로 재배포 — DB(GSI 추가) → foundation → **api(USER_POOL_ID·Cognito 권한·DELETE/GET 라우트)** → realtime(sendMessage 코드) | 아래 배포 명령 참고 |
-| **2** | WebSocket `$connect` Lambda Authorizer 추가 (보안) | `chupa-realtime/template.yaml` |
+| ~~1~~ | ~~전체 재배포(DB→foundation→api→realtime) + Apple IdP~~ **(완료 2026-06-20, 전 스택 배포 + Apple `SignInWithApple` live)** | — |
+| **1** | WebSocket `$connect` Lambda Authorizer 추가 (보안) | `chupa-realtime/template.yaml` |
+| **2** | E2E 검증 — Apple 로그인 왕복 + 바뀐 엔드포인트 스모크(204/birthdate·age/messages 403·오름차순) | 클라 앱 / 실제 id_token |
 | **3** | EAS Build + 앱스토어 메타데이터 (클라이언트 작업) | — |
+| **4** | prod 환경 구성 (🔴1) — prod Cognito/스택 + Apple **prod용 Services ID** 세트 | prod 스택 |
 
 ---
 

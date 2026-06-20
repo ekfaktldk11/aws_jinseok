@@ -1,5 +1,5 @@
 import { QueryCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
-import { ddb, ok, badRequest, notFound, serverError, getUserIdFromEvent } from "./shared.js";
+import { ddb, ok, badRequest, forbidden, notFound, serverError, getUserIdFromEvent } from "./shared.js";
 
 const MATCHES_TABLE = process.env.MATCHES_TABLE;
 const MESSAGES_TABLE = process.env.MESSAGES_TABLE;
@@ -75,7 +75,7 @@ export const handler = async (event) => {
       }));
       if (!matchResult.Item) return notFound("매칭을 찾을 수 없어요");
       if (matchResult.Item.user1Id !== userId && matchResult.Item.user2Id !== userId) {
-        return notFound("매칭을 찾을 수 없어요");
+        return forbidden("이 대화에 접근할 수 없어요");
       }
 
       const limit = Math.min(parseInt(event.queryStringParameters?.limit || "50"), 100);
@@ -99,7 +99,12 @@ export const handler = async (event) => {
         ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString("base64url")
         : null;
 
-      return ok({ messages: result.Items || [], nextToken });
+      // 시간 오름차순 반환 — DDB 는 최신순(ScanIndexForward:false)으로 페이지를 받아
+      //   "최근 메시지 우선" 페이지네이션은 유지하되, 페이지 내부는 오래된→최신 순으로 뒤집어 내려준다.
+      //   (포맷은 WebSocket newMessage.message 와 동일: { matchId, timestamp, senderId, content, type })
+      const messages = (result.Items || []).reverse();
+
+      return ok({ messages, nextToken });
     }
 
     return badRequest("지원하지 않는 요청이에요");

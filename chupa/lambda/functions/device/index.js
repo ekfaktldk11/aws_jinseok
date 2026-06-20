@@ -1,5 +1,5 @@
 import { PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { ddb, ok, created, badRequest, serverError, getUserIdFromEvent } from "./shared.js";
+import { ddb, noContent, badRequest, serverError, getUserIdFromEvent } from "./shared.js";
 
 const TABLE = process.env.DEVICES_TABLE;
 
@@ -15,7 +15,7 @@ export const handler = async (event) => {
       const { token, platform } = body;
 
       if (!token || !platform) return badRequest("token, platform이 필요해요");
-      if (!["ios", "android"].includes(platform)) return badRequest("platform은 ios 또는 android여야 해요");
+      if (!["ios", "android", "web"].includes(platform)) return badRequest("platform은 ios, android, web 중 하나여야 해요");
 
       await ddb.send(new PutCommand({
         TableName: TABLE,
@@ -28,7 +28,7 @@ export const handler = async (event) => {
         },
       }));
 
-      return created({ message: "기기가 등록되었어요" });
+      return noContent();
     }
 
     // DELETE /devices
@@ -43,7 +43,7 @@ export const handler = async (event) => {
         Key: { userId, token },
       }));
 
-      return ok({ message: "기기 등록이 해제되었어요" });
+      return noContent();
     }
 
     return badRequest("지원하지 않는 요청이에요");
