@@ -8,7 +8,7 @@ const CHUPAS_TABLE = process.env.CHUPAS_TABLE;
 const MATCHES_TABLE = process.env.MATCHES_TABLE;
 const CHECKINS_TABLE = process.env.CHECKINS_TABLE;
 const USERS_TABLE = process.env.USERS_TABLE;
-const MAX_DAILY_CHUPAS = 5;
+const MAX_DAILY_CHUPAS = 3;
 // 추파 유효시간(초). 이 시간 안에 상대도 나에게 추파를 보내야 매칭 성립.
 // "동시 쌍방 일치"의 가혹함을 시간창으로 완화한다. ※ 만료돼도 레코드는 삭제하지 않음(보낸 기록 보존).
 // 📡 TODO: 클라 constants/config.ts TIMING 의 추파 유효시간과 반드시 동일 값으로 유지할 것.
